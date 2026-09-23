@@ -1,5 +1,4 @@
 import { AccessError, accessRoute, createAccessRepository } from "./access.js";
-import { clientRoute, createClientRepository } from "./clients.js";
 
 const FUNCTION_SLUG = "three-k-api";
 
@@ -252,7 +251,7 @@ export async function authenticateSupabaseUser(request) {
   return user?.id ? user : null;
 }
 
-export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql)) {
+export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql)) {
   return async function handler(request) {
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
@@ -279,9 +278,6 @@ export function createHandler(repository = databaseRepository, authenticate = au
         ? await readJson(request) : null;
       const result = await accessRoute(access, user, member, request.method, pathname, accessPayload);
       if (result !== undefined) return json({ data: result });
-
-      const clientResult = await clientRoute(clients, member, request.method, url, pathname, accessPayload);
-      if (clientResult !== undefined) return json({ data: clientResult });
 
       if (request.method === "GET" && pathname === "/leads") {
         return json({ data: await repository.listLeads() });
