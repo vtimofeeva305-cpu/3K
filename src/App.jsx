@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import logo from "./assets/3k-logo.svg";
 import { AccessScreen, ROLE_LABELS, TeamScreen, isLeader, useAccess } from "./access.jsx";
+import { ClientDirectory } from "./clients.jsx";
+import { SalesWorkspace, NewSalesDeal } from "./sales.jsx";
 import {
   ArrowRight,
   Bell,
@@ -85,6 +88,7 @@ export function App() {
   const [toast, setToast] = useState("");
   const [note, setNote] = useState("");
   const [newDealOpen, setNewDealOpen] = useState(false);
+  const [clientDirty, setClientDirty] = useState(false);
   const workingManagers = access.team.filter((person) => person.working).map((person) => person.id);
   const assignmentRules = access.rules;
   const managers = access.team;
@@ -154,6 +158,7 @@ export function App() {
   };
 
   const go = (next) => {
+    if (next !== screen && clientDirty && !window.confirm("Отменить несохранённые изменения карточки?")) return;
     if (next === "reports" && !isLeader(access.member)) return;
     setScreen(next);
     setNoticeOpen(false);
@@ -170,73 +175,6 @@ export function App() {
     setUser(null);
     setAuthStatus("signed-out");
     go("today");
-  };
-
-  const openDeal = (dealId) => {
-    const nextDeal = dealRecords.find((deal) => deal.id === dealId);
-    setSelectedDeal(dealId);
-    setDealStage(nextDeal?.stage || "Квалификация");
-    setDealTab("overview");
-    go("deal");
-  };
-
-  const updateDeal = (dealId, patch) => {
-    setDealRecords((items) => items.map((item) => (item.id === dealId ? { ...item, ...patch } : item)));
-  };
-
-  const createDeal = (draft) => {
-    const id = `D-${1 + dealRecords.length}`;
-    const managerId = workingManagers.includes(assignmentRules.phone) ? assignmentRules.phone : workingManagers[0];
-    const manager = managers.find((item) => item.id === managerId)?.name || "Не назначен";
-    const deal = {
-      id,
-      client: draft.client,
-      company: draft.client,
-      product: draft.product || "Модель уточняется",
-      amount: draft.amount || "0 ₽",
-      stage: "Квалификация",
-      manager,
-      task: draft.virtual ? "Подтвердить предзаказ и размер предоплаты" : "Проверить наличие и связаться с клиентом",
-      due: "Сегодня, 18:00",
-      source: "CRM: создано вручную",
-      vin: draft.virtual ? "Не назначен" : draft.vin || "Не указан",
-      date: new Date().toLocaleDateString("ru-RU"),
-      paid: draft.paid || "0 ₽",
-      closeDate: draft.closeDate || "Не запланировано",
-      status: "open",
-      virtual: draft.virtual,
-    };
-    setDealRecords((items) => [deal, ...items]);
-    setNewDealOpen(false);
-    setDealView("open");
-    go("deals");
-    notify(`${draft.virtual ? "Виртуальная" : "Новая"} сделка ${id} создана`);
-  };
-
-  const createLandingLead = ({ client, phone, listing }) => {
-    const managerId = workingManagers.includes(assignmentRules.landing) ? assignmentRules.landing : workingManagers[0];
-    const manager = managers.find((item) => item.id === managerId)?.name.split(" ")[0] || "Не назначен";
-    const lead = {
-      id: `L-${1 + leadRecords.length}`,
-      client,
-      phone,
-      city: "Не указан",
-      time: "Только что",
-      source: "Лендинг BRP",
-      sourceDetected: true,
-      listing,
-      category: "Заявка с сайта",
-      price: "Цена уточняется",
-      message: "Клиент оставил заявку на лендинге и согласие на обратный звонок.",
-      manager,
-      status: "Новый",
-      confidence: "100%",
-      nextTask: "Связаться с клиентом в течение 15 минут",
-    };
-    setLeadRecords((items) => [lead, ...items]);
-    setSelectedLead(lead.id);
-    go("leads");
-    notify(`Источник определён: Лендинг BRP. Ответственный: ${manager}`);
   };
 
   if (authStatus === "loading") {
@@ -262,11 +200,8 @@ export function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <div className="brand-mark">BRP</div>
-          <div>
-            <div className="brand-title">ЗК BRP</div>
-            <div className="brand-subtitle">CRM продаж</div>
-          </div>
+          <img className="brand-logo" src={logo} alt="3К" width="104" height="64" />
+          <div className="brand-subtitle">CRM продаж</div>
         </div>
 
         <nav className="nav-list" aria-label="Основные разделы">
@@ -308,67 +243,26 @@ export function App() {
           noticeOpen={noticeOpen}
           setNoticeOpen={setNoticeOpen}
           go={go}
-          openNewDeal={() => setNewDealOpen(true)}
+          openNewDeal={() => { if (!clientDirty || window.confirm("Отменить несохранённые изменения карточки?")) setNewDealOpen(true); }}
           user={user}
           onSignOut={handleSignOut}
         />
 
-        {screen === "today" && <TodayScreen go={go} leadRecords={leadRecords} dealRecords={dealRecords} clientRecords={clientRecords} leader={isLeader(access.member)} />}
+        {screen === "today" && <TodayScreen api={access.api} go={go} leader={isLeader(access.member)} />}
         {screen === "showroom" && <ShowroomScreen notify={notify} waitAdded={waitAdded} setWaitAdded={setWaitAdded} />}
-        {screen === "leads" && (
-          <LeadsScreen
-            activeLead={activeLead}
-            filteredLeads={filteredLeads}
-            selectedLead={selectedLead}
-            setSelectedLead={setSelectedLead}
-            go={go}
-            notify={notify}
-            updateLead={(leadId, patch) => setLeadRecords((items) => items.map((item) => (item.id === leadId ? { ...item, ...patch } : item)))}
-          />
-        )}
-        {screen === "deals" && (
-          <DealsScreen
-            deals={dealRecords}
-            dealView={dealView}
-            setDealView={setDealView}
-            openDeal={openDeal}
-            openNewDeal={() => setNewDealOpen(true)}
-          />
-        )}
-        {screen === "pipeline" && <PipelineScreen deals={dealRecords} openDeal={openDeal} openNewDeal={() => setNewDealOpen(true)} notify={notify} />}
+        {["leads", "deals", "pipeline", "deal", "landing"].includes(screen) && <SalesWorkspace key={`${screen}:${newDealOpen}`} api={access.api} member={access.member} team={access.team}
+          kind={["leads", "landing"].includes(screen) ? "leads" : "deals"} intake={screen === "landing"} query={query} notify={notify} onDirtyChange={setClientDirty} />}
         {screen === "clients" && (
-          <ClientsScreen
-            clients={clientRecords}
-            selectedClient={selectedClient}
-            setSelectedClient={setSelectedClient}
-            updateClient={(clientId, patch) => setClientRecords((items) => items.map((item) => (item.id === clientId ? { ...item, ...patch } : item)))}
-            notify={notify}
-          />
+          <ClientDirectory api={access.api} notify={notify} onDirtyChange={setClientDirty} />
         )}
         {screen === "managers" && (
           <TeamScreen access={access} />
         )}
         {screen === "reports" && isLeader(access.member) && <ReportsScreen />}
-        {screen === "landing" && <LandingScreen go={go} onSubmit={createLandingLead} />}
-        {screen === "deal" && (
-          <DealScreen
-            deal={activeDeal}
-            dealStage={dealStage}
-            setDealStage={setDealStage}
-            dealTab={dealTab}
-            setDealTab={setDealTab}
-            taskDone={taskDone}
-            setTaskDone={setTaskDone}
-            note={note}
-            setNote={setNote}
-            notify={notify}
-            updateDeal={updateDeal}
-          />
-        )}
       </main>
 
       {toast ? <div className="toast">{toast}</div> : null}
-      {newDealOpen ? <NewDealModal clients={clientRecords} onClose={() => setNewDealOpen(false)} onCreate={createDeal} /> : null}
+      {newDealOpen ? <NewSalesDeal api={access.api} member={access.member} team={access.team} onClose={() => setNewDealOpen(false)} notify={notify} /> : null}
     </div>
   );
 }
@@ -381,11 +275,8 @@ function AuthScreen({ mode, authConfig, error, onTelegramSignIn }) {
     <main className="auth-shell">
       <section className="auth-panel">
         <div className="brand-block">
-          <div className="brand-mark">BRP</div>
-          <div>
-            <div className="brand-title">ЗК BRP</div>
-            <div className="brand-subtitle">CRM продаж</div>
-          </div>
+          <img className="brand-logo" src={logo} alt="3К" width="104" height="64" />
+          <div className="brand-subtitle">CRM продаж</div>
         </div>
 
         <div className="auth-copy">
@@ -425,6 +316,7 @@ function getUserDisplayName(user) {
 function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal, user, onSignOut }) {
   return (
     <header className="topbar">
+      <div className="mobile-brand"><img src={logo} alt="3К" width="58" height="36" /><span>CRM продаж</span><button className="mobile-landing" type="button" onClick={() => go("landing")}><Storefront size={16} />Лендинг</button></div>
       <label className="search-box">
         <MagnifyingGlass size={18} />
         <input
@@ -475,17 +367,34 @@ function EmptyScreen({ title, message = "Записей пока нет" }) {
   return <section className="screen"><div className="page-heading"><h1>{title}</h1></div><p className="empty-state">{message}</p></section>;
 }
 
-function TodayScreen({ go, leadRecords, dealRecords, clientRecords, leader }) {
+function TodayScreen({ go, api, leader }) {
+  const [counts, setCounts] = useState(null);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    api("/sales/summary").then(data => { if (active) { setCounts(data); setError(""); } })
+      .catch(failure => { if (active) setError(failure.message); });
+    return () => { active = false; };
+  }, [api, revision]);
   return <section className="screen screen-today">
-    <div className="page-heading"><div><div className="eyebrow">{new Date().toLocaleDateString("ru-RU")}</div><h1>Сегодня</h1></div></div>
+    <div className="page-heading">
+      <div><div className="eyebrow">Рабочий стол · {new Date().toLocaleDateString("ru-RU")}</div><h1>Сегодня</h1><p className="page-description">Всё для работы с клиентами и продажами.</p></div>
+      {leader && <button className="secondary-button" onClick={() => go("reports")}><ChartLineUp size={18} />Дашборд РОПа<ArrowRight size={16} /></button>}
+    </div>
+    {error && <p role="alert">{error} <button className="ghost-button" onClick={() => setRevision(value => value + 1)}>Повторить</button></p>}
     <div className="stats-grid">
-      {[[ChatCircleText, "Лиды", leadRecords.length, "leads"], [Kanban, "Сделки", dealRecords.length, "deals"], [UsersThree, "Клиенты", clientRecords.length, "clients"]].map(([Icon, label, value, target]) =>
-        <button className="stat-card" key={target} type="button" onClick={() => go(target)}><Icon size={22} /><span>{label}</span><strong>{value}</strong></button>
+      {[[ChatCircleText, "Лиды", counts?.leads ?? "…", "leads", "Входящие обращения"], [Kanban, "Сделки", counts?.deals ?? "…", "deals", "Работа с продажами"], [UsersThree, "Клиенты", counts?.clients ?? "…", "clients", "Клиентская база"]].map(([Icon, label, value, target, description]) =>
+        <button className="stat-card today-stat" key={target} type="button" onClick={() => go(target)}>
+          <span className="today-stat-heading"><span className="stat-icon"><Icon size={21} /></span><span>{label}</span><ArrowRight className="stat-arrow" size={18} /></span>
+          <strong className="today-stat-value">{value}</strong><span className="today-stat-description">{description}</span>
+        </button>
       )}
     </div>
-    <div className="section-title"><h2>Задачи на сегодня</h2></div>
-    {leader && <button className="secondary-button" onClick={() => go("reports")}><ChartLineUp size={18} />Дашборд РОПа</button>}
-    <p className="empty-state">Задач пока нет</p>
+    <section className="plain-section today-tasks">
+      <div className="section-title"><h2>Задачи на сегодня</h2><CalendarCheck size={20} /></div>
+      <div className="today-empty"><span className="empty-icon"><ListChecks size={30} weight="light" /></span><h3>Задач пока нет</h3><p>Здесь появятся запланированные звонки<br />и следующие шаги по клиентам.</p></div>
+    </section>
   </section>;
 }
 

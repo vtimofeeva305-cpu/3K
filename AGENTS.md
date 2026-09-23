@@ -23,3 +23,5 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - The ROP dashboard uses one global period control (today, yesterday, current week, current month, previous month, or custom dates) and dedicated tabs for the full sales funnel, sortable manager performance, diagnostic manager activity, lead-response speed, attention signals, and marketing attribution.
 - Activity metrics explain sales results but are not treated as the primary KPI. Manager detail must connect activity, conversion, overdue work, revenue, gross profit, plan, and forecast.
 - Do not add demonstration records or metrics. Source attribution remains system-owned and immutable.
+
+- CRM identity uses the user-supplied 3К vector logo (`src/assets/3k-logo.svg`) and black/white/neutral gray palette: dark desktop sidebar and mobile bottom navigation, light workspace, graphite primary actions. Replace the old BRP brand mark; retain semantic status/error colors and BRP vehicle/source references. Keep the existing 1100px compact sidebar and 760px mobile navigation breakpoints.

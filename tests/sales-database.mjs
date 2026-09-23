@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { createSalesRepository, validateSale } from "../supabase/functions/three-k-api/sales.js";
+const { PGlite } = await import(process.env.PGLITE_MODULE || "@electric-sql/pglite");
+const db = new PGlite();
+function tagged(client) {
+  const sql = (strings,...values) => {
+    if (!Array.isArray(strings)) return { record:strings };
+    const parameters = [];
+    const bind = value => { parameters.push(value); return `$${parameters.length}`; };
+    let query = strings[0];
+    values.forEach((value,index) => {
+      if (value?.record) {
+        const entries = Object.entries(value.record);
+        const name = key => `"${key.replaceAll('"','""')}"`;
+        query += /insert into[\s\S]*$/i.test(query)
+          ? `(${entries.map(([key])=>name(key)).join(',')}) values (${entries.map(([,v])=>bind(v)).join(',')})`
+          : entries.map(([key,v])=>`${name(key)}=${bind(v)}`).join(',');
+      } else query += bind(value);
+      query += strings[index+1];
+    });
+    return client.query(query,parameters).then(result=>result.rows);
+  };
+  sql.array = value=>value;
+  sql.begin = callback=>db.transaction(tx=>callback(tagged(tx)));
+  return sql;
+}
+const member = { id:"00000000-0000-4000-8000-000000000001",role:"manager" };
+const other = { id:"00000000-0000-4000-8000-000000000002",role:"manager" };
+const boss = { ...other,role:"rop" };
+const rejected = promise => assert.rejects(promise,error=>[403,409,422].includes(error.status));
+try {
+  await db.exec("create role anon; create role authenticated; create role service_role; create schema auth; create table auth.users(id uuid primary key);");
+  for (const name of ["20260923172956_bootstrap_three_k_namespace","20260923210426_team_roles_and_invitations","20260923212051_client_persistence",process.env.SALES_MIGRATION || "20260923214212_sales_persistence"]) {
+    await db.exec(await readFile(new URL(`../supabase/migrations/${name}.sql`,import.meta.url),"utf8"));
+  }
+  await db.query("insert into auth.users values ($1),($2)",[member.id,other.id]);
+  await db.query("insert into three_k.members(user_id,telegram_subject,display_name,role,working) values ($1,'one','First','manager',true),($2,'two','Second','manager',false)",[member.id,other.id]);
+  await db.query("insert into three_k.assignment_rules(source,member_id) values ('phone',$1),('landing',$2)",[member.id,other.id]);
+  const repo = createSalesRepository(async()=>tagged(db));
+  const data = validateSale({client:"SQL клиент",phone:"8 (900) 000-00-01",listing:"Sea-Doo",price:"123.45"},"leads");
+  const requestId = crypto.randomUUID();
+  const lead = await repo.create("leads",data,member,requestId);
+  assert.equal(lead.assigneeId,member.id);
+  assert.equal(lead.source,"Телефон");
+  assert.equal(lead.price,123.45);
+  assert.ok(lead.clientId);
+  assert.equal((await repo.create("leads",data,member,requestId)).id,lead.id);
+  await rejected(repo.create("leads",data,other,requestId));
+  const landing = await repo.create("leads",data,member,crypto.randomUUID(),"landing");
+  assert.equal(landing.assigneeId,null);
+  assert.equal(landing.clientId,lead.clientId);
+  assert.equal(landing.source,"Лендинг BRP");
+  await rejected(repo.take("leads",landing.id,1,other,other.id));
+  await rejected(repo.take("leads",lead.id,1,other,other.id));
+  const taken = await repo.take("leads",landing.id,1,member,member.id);
+  assert.equal(taken.version,2);
+  await rejected(repo.convert(lead.id,1,other));
+  const deal = await repo.convert(lead.id,1,member);
+  assert.equal(deal.clientId,lead.clientId);
+  assert.equal(deal.amount,123.45);
+  assert.equal(deal.source,lead.source);
+  assert.equal((await repo.convert(lead.id,1,member)).id,deal.id);
+  assert.equal((await repo.get("leads",lead.id)).status,"Сделка создана");
+  assert.equal((await repo.get("leads",lead.id)).dealId,deal.id);
+  await rejected(repo.take("leads",lead.id,2,boss,member.id));
+  const edit = validateSale({clientId:deal.clientId,product:"Новая техника",amount:"234.56",virtual:true,stage:"Отказ",lossReason:"Передумал",closeDate:"2026-10-01"},"deals");
+  await rejected(repo.updateDeal(deal.id,edit,1,other));
+  const saved = await repo.updateDeal(deal.id,edit,1,member);
+  assert.equal(saved.status,"closed");
+  assert.equal(saved.closeDate,"2026-10-01");
+  assert.equal(saved.lossReason,"Передумал");
+  assert.ok(saved.closedAt);
+  await rejected(repo.updateDeal(deal.id,edit,1,member));
+  const reopened = await repo.updateDeal(deal.id,{...edit,stage:"Подбор",loss_reason:""},2,boss);
+  assert.equal(reopened.closedAt,null);
+  assert.equal(reopened.events.length,3);
+  assert.equal((await repo.list("deals",{q:"Новая",status:"open",offset:0,clientId:lead.clientId})).items[0].id,deal.id);
+  const manualRequest = crypto.randomUUID();
+  const manual = await repo.create("deals",edit,member,manualRequest);
+  assert.equal((await repo.create("deals",edit,member,manualRequest)).id,manual.id);
+  assert.equal(manual.source,"CRM: создано вручную");
+  const count = async()=>Number((await db.query("select count(*) from three_k.deals")).rows[0].count);
+  const before = await count();
+  await assert.rejects(repo.convert(landing.id,2,{id:crypto.randomUUID(),role:"rop"}));
+  assert.equal(await count(),before);
+  assert.equal((await repo.get("leads",landing.id)).status,"В работе");
+  const rights = (await db.query("select has_table_privilege('anon','three_k.sales_events','SELECT') as anon, has_table_privilege('authenticated','three_k.deals','UPDATE') as authenticated")).rows[0];
+  assert.deepEqual(await repo.summary(),{leads:2,deals:2,clients:1});
+  assert.deepEqual(rights,{anon:false,authenticated:false});
+  console.log("Sales PostgreSQL passed: persistence, assignment/workdays, client reuse, retry, permissions, conversion, rollback, versions, closure/reopening, filters, history and isolation. No live test data.");
+} finally { await db.close(); }

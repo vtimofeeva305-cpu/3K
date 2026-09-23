@@ -19,7 +19,7 @@ function setup(role) {
     setRule: async () => { calls.push("rule"); return {}; },
   };
   const handler = createHandler({ listLeads: async () => [], reportSummary: async () => ({}) },
-    async () => ({ id: self, user_metadata: { role: "superadmin" } }), access);
+    async () => ({ id: self, user_metadata: { role: "superadmin" } }), access, undefined, {list:async()=>({items:[],hasMore:false})});
   const request = (path, body) => handler(new Request(`https://example.test${path}`, body === undefined ? {} : {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }));

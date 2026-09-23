@@ -1,4 +1,6 @@
 import { AccessError, accessRoute, createAccessRepository } from "./access.js";
+import { clientRoute, createClientRepository } from "./clients.js";
+import { salesRoute, createSalesRepository } from "./sales.js";
 
 const FUNCTION_SLUG = "three-k-api";
 
@@ -251,7 +253,7 @@ export async function authenticateSupabaseUser(request) {
   return user?.id ? user : null;
 }
 
-export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql)) {
+export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql), sales = createSalesRepository(getSql)) {
   return async function handler(request) {
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
@@ -274,17 +276,17 @@ export function createHandler(repository = databaseRepository, authenticate = au
       }
 
       const member = await access.member(user.id);
-      const accessPayload = request.method === "POST" && !["/leads", "/deals"].includes(pathname)
+      const accessPayload = request.method === "POST"
         ? await readJson(request) : null;
       const result = await accessRoute(access, user, member, request.method, pathname, accessPayload);
       if (result !== undefined) return json({ data: result });
 
-      if (request.method === "GET" && pathname === "/leads") {
-        return json({ data: await repository.listLeads() });
-      }
-      if (request.method === "GET" && pathname === "/deals") {
-        return json({ data: await repository.listDeals() });
-      }
+      const clientResult = await clientRoute(clients, member, request.method, url, pathname, accessPayload);
+      if (clientResult !== undefined) return json({ data: clientResult });
+
+      const saleResult = await salesRoute(sales, member, request.method, url, pathname, accessPayload);
+      if (saleResult !== undefined) return json({ data: saleResult });
+
       if (request.method === "GET" && pathname === "/clients") {
         return json({ data: await repository.listClients() });
       }
@@ -293,56 +295,6 @@ export function createHandler(repository = databaseRepository, authenticate = au
       }
       if (request.method === "GET" && pathname === "/reports/summary") {
         return json({ data: await repository.reportSummary() });
-      }
-
-      if (request.method === "POST" && pathname === "/leads") {
-        const payload = await readJson(request);
-        const client = requiredText(payload, "client");
-        const phone = requiredText(payload, "phone");
-        if (!client || !phone) {
-          return json(
-            { error: "validation_error", message: "Fields client and phone are required" },
-            { status: 422 },
-          );
-        }
-
-        const lead = await repository.createLead({
-          client,
-          phone,
-          city: requiredText(payload, "city") || "Не указан",
-          source: requiredText(payload, "source") || "3K API",
-          listing: requiredText(payload, "listing") || "Модель уточняется",
-          category: requiredText(payload, "category") || "Новая заявка",
-          price: payload?.price || 0,
-          manager: member.role === "manager" ? member.name : requiredText(payload, "manager") || "Не назначен",
-          nextTask: requiredText(payload, "nextTask") || "Связаться с клиентом в течение 15 минут",
-        });
-        return json({ data: lead }, { status: 201 });
-      }
-
-      if (request.method === "POST" && pathname === "/deals") {
-        const payload = await readJson(request);
-        const client = requiredText(payload, "client");
-        const product = requiredText(payload, "product");
-        if (!client || !product) {
-          return json(
-            { error: "validation_error", message: "Fields client and product are required" },
-            { status: 422 },
-          );
-        }
-
-        const deal = await repository.createDeal({
-          client,
-          company: requiredText(payload, "company") || client,
-          product,
-          amount: payload?.amount || 0,
-          stage: requiredText(payload, "stage") || "Квалификация",
-          manager: member.role === "manager" ? member.name : requiredText(payload, "manager") || "Не назначен",
-          task: requiredText(payload, "task") || "Проверить наличие и связаться с клиентом",
-          due: requiredText(payload, "due") || "Сегодня, 18:00",
-          virtual: Boolean(payload?.virtual),
-        });
-        return json({ data: deal }, { status: 201 });
       }
 
       return json(

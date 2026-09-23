@@ -40,7 +40,7 @@ export function useAccess(config, signedIn) {
     });
     const body = await response.json();
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
         setMember(null);
         setError(body.message || "Сессия истекла. Войдите снова.");
         setStatus("error");
