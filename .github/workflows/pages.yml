@@ -27,6 +27,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:supabase
       - uses: actions/configure-pages@v5
       - run: npx vite build --base=/3K/
       - uses: actions/upload-pages-artifact@v3

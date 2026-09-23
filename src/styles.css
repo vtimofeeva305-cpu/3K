@@ -173,6 +173,77 @@ button {
   padding: 0 34px 34px;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 210, 31, 0.18), transparent 34%),
+    var(--soft);
+}
+
+.auth-panel {
+  width: min(440px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+  display: grid;
+  gap: 22px;
+}
+
+.auth-copy h1 {
+  margin: 8px 0 0;
+  font-size: 30px;
+}
+
+.auth-copy p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.auth-alert {
+  min-height: 42px;
+  border: 1px solid #ead786;
+  border-radius: 8px;
+  background: #fffbed;
+  color: var(--navy);
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.auth-alert.danger {
+  border-color: #efcbc8;
+  background: #fff0ef;
+  color: var(--danger);
+}
+
+.telegram-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: #229ed9;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-weight: 800;
+}
+
+.telegram-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .topbar {
   height: 76px;
   display: flex;
@@ -2780,11 +2851,11 @@ h3 {
     padding: 18px 12px;
   }
 
-  .brand-block {
+  .sidebar .brand-block {
     justify-content: center;
   }
 
-  .brand-block > div:not(.brand-mark),
+  .sidebar .brand-block > div:not(.brand-mark),
   .nav-item span,
   .role-panel {
     display: none;
@@ -2870,6 +2941,20 @@ h3 {
 }
 
 @media (max-width: 760px) {
+  .auth-shell {
+    padding: 16px;
+    align-items: stretch;
+  }
+
+  .auth-panel {
+    align-self: center;
+    padding: 20px;
+  }
+
+  .auth-copy h1 {
+    font-size: 27px;
+  }
+
   .app-shell {
     display: block;
   }
@@ -2888,7 +2973,7 @@ h3 {
     backdrop-filter: blur(14px);
   }
 
-  .brand-block,
+  .sidebar .brand-block,
   .role-panel {
     display: none;
   }
@@ -3357,3 +3442,14 @@ h3 {
     text-align: center;
   }
 }
+/* Team access controls share the operational layout. */
+.team-invitations { margin-top: 24px; }
+.invite-link, .invitation-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 0; }
+.invite-link input { flex: 1 1 240px; min-width: 0; padding: 10px; }
+.invitation-row { border-bottom: 1px solid #d9dfe0; }
+.invitation-row span { flex: 1 1 180px; overflow-wrap: anywhere; }
+.manager-card h2, .role-row { overflow-wrap: anywhere; }
+.assignment-rule select { min-width: 0; max-width: 100%; }
+.screen-managers .assignment-panel { background: transparent; border: 0; padding: 20px 0; }
+.screen-managers .assignment-rule { background: transparent; border: 0; padding: 0; }
+.invite-link input { border: 1px solid #dfe4ec; border-radius: 6px; font: inherit; }

@@ -19,7 +19,8 @@ function makeRepository() {
   };
 }
 
-const handler = createHandler(makeRepository(), async () => ({ id: "test-user" }));
+const access = { async member() { return { id: "test-user", role: "rop" }; }, async team() { return []; } };
+const handler = createHandler(makeRepository(), async () => ({ id: "test-user" }), access);
 
 test("serves health through the deployed function path", async () => {
   const response = await handler(

@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AccessScreen, ROLE_LABELS, TeamScreen, isLeader, useAccess } from "./access.jsx";
 import {
   ArrowRight,
   Bell,
   CalendarCheck,
-  CaretDown,
   ChartLineUp,
   ChatCircleText,
   CheckCircle,
@@ -25,11 +25,22 @@ import {
   Plus,
   ShieldCheck,
   Storefront,
+  SignOut,
+  TelegramLogo,
   UserGear,
   UsersThree,
   WarningCircle,
   XCircle,
 } from "@phosphor-icons/react";
+import {
+  clearStoredSession,
+  consumeSessionFromUrl,
+  fetchUser,
+  getAuthConfig,
+  getValidSession,
+  signInWithTelegram,
+  signOut,
+} from "./auth.js";
 
 const NAV_ITEMS = [
   { id: "today", label: "Сегодня", mobileLabel: "Сегодня", icon: House },
@@ -43,7 +54,6 @@ const NAV_ITEMS = [
 const leads = [];
 const deals = [];
 const clients = [];
-const managers = [];
 const history = [];
 const stages = ["Квалификация", "Подбор", "Ожидается оплата", "Связаться позже", "Отказ"];
 
@@ -52,6 +62,12 @@ function cx(...classes) {
 }
 
 export function App() {
+  const authConfig = useMemo(() => getAuthConfig(), []);
+  const [authStatus, setAuthStatus] = useState("loading");
+  const [authError, setAuthError] = useState("");
+  const [session, setSession] = useState(null);
+  const [user, setUser] = useState(null);
+  const access = useAccess(authConfig, authStatus === "signed-in");
   const [screen, setScreen] = useState("today");
   const [leadRecords, setLeadRecords] = useState(leads);
   const [dealRecords, setDealRecords] = useState(deals);
@@ -69,8 +85,60 @@ export function App() {
   const [toast, setToast] = useState("");
   const [note, setNote] = useState("");
   const [newDealOpen, setNewDealOpen] = useState(false);
-  const [workingManagers, setWorkingManagers] = useState([]);
-  const [assignmentRules, setAssignmentRules] = useState({ avito: "", landing: "", phone: "" });
+  const workingManagers = access.team.filter((person) => person.working).map((person) => person.id);
+  const assignmentRules = access.rules;
+  const managers = access.team;
+
+  useEffect(() => {
+    if (!isLeader(access.member)) setScreen((current) => current === "reports" ? "today" : current);
+  }, [access.member]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function initializeAuth() {
+      if (!authConfig.isConfigured) {
+        setAuthStatus("signed-out");
+        return;
+      }
+
+      const callbackResult = consumeSessionFromUrl();
+      if (callbackResult.error) {
+        setAuthError(callbackResult.error);
+      }
+
+      const activeSession = await getValidSession(authConfig, callbackResult.session || undefined);
+      if (!activeSession) {
+        if (isMounted) setAuthStatus("signed-out");
+        return;
+      }
+
+      const activeUser = await fetchUser(authConfig, activeSession);
+      if (!isMounted) return;
+
+      if (!activeUser) {
+        setAuthStatus("signed-out");
+        return;
+      }
+
+      setSession(activeSession);
+      setUser(activeUser);
+      setAuthStatus("signed-in");
+    }
+
+    initializeAuth().catch((error) => {
+      console.error("Auth initialization failed", error);
+      clearStoredSession();
+      if (isMounted) {
+        setAuthError("Не удалось проверить сессию Telegram");
+        setAuthStatus("signed-out");
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authConfig]);
 
   const activeLead = useMemo(() => leadRecords.find((lead) => lead.id === selectedLead) || leadRecords[0], [leadRecords, selectedLead]);
   const activeDeal = useMemo(() => dealRecords.find((deal) => deal.id === selectedDeal) || dealRecords[0], [dealRecords, selectedDeal]);
@@ -86,8 +154,22 @@ export function App() {
   };
 
   const go = (next) => {
+    if (next === "reports" && !isLeader(access.member)) return;
     setScreen(next);
     setNoticeOpen(false);
+  };
+
+  const handleTelegramSignIn = () => {
+    if (!authConfig.isConfigured) return;
+    signInWithTelegram(authConfig);
+  };
+
+  const handleSignOut = async () => {
+    await signOut(authConfig, session);
+    setSession(null);
+    setUser(null);
+    setAuthStatus("signed-out");
+    go("today");
   };
 
   const openDeal = (dealId) => {
@@ -157,6 +239,25 @@ export function App() {
     notify(`Источник определён: Лендинг BRP. Ответственный: ${manager}`);
   };
 
+  if (authStatus === "loading") {
+    return <AuthScreen mode="loading" />;
+  }
+
+  if (authStatus !== "signed-in") {
+    return (
+      <AuthScreen
+        mode="signed-out"
+        authConfig={authConfig}
+        error={authError}
+        onTelegramSignIn={handleTelegramSignIn}
+      />
+    );
+  }
+
+  if (access.status !== "ready" || !access.member || access.invite) {
+    return <AccessScreen access={access} onSignOut={handleSignOut} />;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -169,7 +270,7 @@ export function App() {
         </div>
 
         <nav className="nav-list" aria-label="Основные разделы">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => item.id !== "reports" || isLeader(access.member)).map((item) => {
             const Icon = item.icon;
             const isActive = screen === item.id || (screen === "deal" && item.id === "deals");
             return (
@@ -195,9 +296,8 @@ export function App() {
           <div className="eyebrow">Роль</div>
           <div className="role-row">
             <ShieldCheck size={18} weight="fill" />
-            Руководитель
+            {ROLE_LABELS[access.member.role]}
           </div>
-          <p>Видит все обращения, сделки, аналитику и сотрудников.</p>
         </div>
       </aside>
 
@@ -209,9 +309,11 @@ export function App() {
           setNoticeOpen={setNoticeOpen}
           go={go}
           openNewDeal={() => setNewDealOpen(true)}
+          user={user}
+          onSignOut={handleSignOut}
         />
 
-        {screen === "today" && <TodayScreen go={go} leadRecords={leadRecords} dealRecords={dealRecords} clientRecords={clientRecords} />}
+        {screen === "today" && <TodayScreen go={go} leadRecords={leadRecords} dealRecords={dealRecords} clientRecords={clientRecords} leader={isLeader(access.member)} />}
         {screen === "showroom" && <ShowroomScreen notify={notify} waitAdded={waitAdded} setWaitAdded={setWaitAdded} />}
         {screen === "leads" && (
           <LeadsScreen
@@ -244,15 +346,9 @@ export function App() {
           />
         )}
         {screen === "managers" && (
-          <ManagersScreen
-            workingManagers={workingManagers}
-            setWorkingManagers={setWorkingManagers}
-            assignmentRules={assignmentRules}
-            setAssignmentRules={setAssignmentRules}
-            notify={notify}
-          />
+          <TeamScreen access={access} />
         )}
-        {screen === "reports" && <ReportsScreen />}
+        {screen === "reports" && isLeader(access.member) && <ReportsScreen />}
         {screen === "landing" && <LandingScreen go={go} onSubmit={createLandingLead} />}
         {screen === "deal" && (
           <DealScreen
@@ -277,7 +373,56 @@ export function App() {
   );
 }
 
-function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal }) {
+function AuthScreen({ mode, authConfig, error, onTelegramSignIn }) {
+  const isLoading = mode === "loading";
+  const missingKeys = authConfig?.missingKeys || [];
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <div className="brand-block">
+          <div className="brand-mark">BRP</div>
+          <div>
+            <div className="brand-title">ЗК BRP</div>
+            <div className="brand-subtitle">CRM продаж</div>
+          </div>
+        </div>
+
+        <div className="auth-copy">
+          <div className="eyebrow">Вход для команды</div>
+          <h1>{isLoading ? "Проверяем сессию" : "Авторизация через Telegram"}</h1>
+          <p>{isLoading ? "CRM откроется после проверки пользователя." : "Доступ к рабочему пространству доступен после входа в Telegram."}</p>
+        </div>
+
+        {missingKeys.length ? (
+          <div className="auth-alert">
+            <WarningCircle size={19} weight="bold" />
+            <span>Не заданы переменные: {missingKeys.join(", ")}</span>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="auth-alert danger">
+            <XCircle size={19} weight="bold" />
+            <span>{error}</span>
+          </div>
+        ) : null}
+
+        <button className="telegram-button" type="button" onClick={onTelegramSignIn} disabled={isLoading || missingKeys.length > 0}>
+          <TelegramLogo size={20} weight="fill" />
+          Войти через Telegram
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function getUserDisplayName(user) {
+  const metadata = user?.user_metadata || {};
+  return metadata.full_name || metadata.name || metadata.user_name || user?.email || "Пользователь";
+}
+
+function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal, user, onSignOut }) {
   return (
     <header className="topbar">
       <label className="search-box">
@@ -316,10 +461,10 @@ function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal })
             </div>
           ) : null}
         </div>
-        <button className="profile-chip" type="button">
+        <button className="profile-chip" type="button" onClick={onSignOut} title="Выйти">
           <span><UsersThree size={18} /></span>
-          Пользователь
-          <CaretDown size={14} />
+          {getUserDisplayName(user)}
+          <SignOut size={15} weight="bold" />
         </button>
       </div>
     </header>
@@ -330,7 +475,7 @@ function EmptyScreen({ title, message = "Записей пока нет" }) {
   return <section className="screen"><div className="page-heading"><h1>{title}</h1></div><p className="empty-state">{message}</p></section>;
 }
 
-function TodayScreen({ go, leadRecords, dealRecords, clientRecords }) {
+function TodayScreen({ go, leadRecords, dealRecords, clientRecords, leader }) {
   return <section className="screen screen-today">
     <div className="page-heading"><div><div className="eyebrow">{new Date().toLocaleDateString("ru-RU")}</div><h1>Сегодня</h1></div></div>
     <div className="stats-grid">
@@ -339,6 +484,7 @@ function TodayScreen({ go, leadRecords, dealRecords, clientRecords }) {
       )}
     </div>
     <div className="section-title"><h2>Задачи на сегодня</h2></div>
+    {leader && <button className="secondary-button" onClick={() => go("reports")}><ChartLineUp size={18} />Дашборд РОПа</button>}
     <p className="empty-state">Задач пока нет</p>
   </section>;
 }
@@ -858,62 +1004,6 @@ function ClientsScreen({ clients, selectedClient, setSelectedClient, updateClien
   );
 }
 
-function ManagersScreen({ workingManagers, setWorkingManagers, assignmentRules, setAssignmentRules, notify }) {
-  const availableManagers = managers.filter((manager) => workingManagers.includes(manager.id));
-  const toggleDay = (managerId) => {
-    const isWorking = workingManagers.includes(managerId);
-    setWorkingManagers((items) => (isWorking ? items.filter((id) => id !== managerId) : [...items, managerId]));
-    notify(isWorking ? "Рабочий день завершён" : "Рабочий день начат, менеджер участвует в распределении");
-  };
-  return (
-    <section className="screen screen-managers">
-      <div className="page-heading">
-        <div><div className="eyebrow">Распределение нагрузки</div><h1>Команда</h1></div>
-        <span className="online-summary">{workingManagers.length} из {managers.length} в работе</span>
-      </div>
-      <div className="manager-grid">
-        {managers.map((manager) => {
-          const isWorking = workingManagers.includes(manager.id);
-          return (
-            <article className="manager-card" key={manager.id}>
-              <div className="manager-card-top">
-                <div className="manager-avatar">{manager.initials}</div>
-                <span className={cx("work-status", isWorking && "online")}>{isWorking ? "На линии" : "Не начал день"}</span>
-              </div>
-              <h2>{manager.name}</h2>
-              <p>{manager.focus}</p>
-              <div className="schedule-row"><CalendarCheck size={18} /><span>{manager.days}</span><strong>{manager.schedule}</strong></div>
-              <div className="manager-load"><span>Активные лиды</span><strong>{manager.leads}</strong></div>
-              <button className={isWorking ? "secondary-button full" : "primary-button full"} type="button" onClick={() => toggleDay(manager.id)}>
-                {isWorking ? "Завершить рабочий день" : "Начать рабочий день"}
-              </button>
-            </article>
-          );
-        })}
-      </div>
-      <section className="assignment-panel">
-        <div className="section-title">
-          <div><h2>Назначение ответственных</h2><p>Лиды получают только менеджеры, которые начали рабочий день.</p></div>
-          <span>Автоматически по источнику</span>
-        </div>
-        <div className="rule-grid">
-          {[["avito", "Авито"], ["landing", "Лендинг BRP"], ["phone", "Телефон / вручную"]].map(([id, label]) => (
-            <label className="assignment-rule" key={id}>
-              <div><LinkSimple size={18} weight="bold" /><span>{label}</span></div>
-              <select
-                value={workingManagers.includes(assignmentRules[id]) ? assignmentRules[id] : availableManagers[0]?.id || ""}
-                onChange={(event) => setAssignmentRules((rules) => ({ ...rules, [id]: event.target.value }))}
-                disabled={!availableManagers.length}
-              >
-                {availableManagers.map((manager) => <option value={manager.id} key={manager.id}>{manager.name}</option>)}
-              </select>
-            </label>
-          ))}
-        </div>
-      </section>
-    </section>
-  );
-}
 
 function LandingScreen({ go, onSubmit }) {
   const [client, setClient] = useState("");

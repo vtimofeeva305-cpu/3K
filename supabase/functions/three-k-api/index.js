@@ -1,3 +1,6 @@
+import { AccessError, accessRoute, createAccessRepository } from "./access.js";
+import { clientRoute, createClientRepository } from "./clients.js";
+
 const FUNCTION_SLUG = "three-k-api";
 
 const jsonHeaders = {
@@ -249,7 +252,7 @@ export async function authenticateSupabaseUser(request) {
   return user?.id ? user : null;
 }
 
-export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser) {
+export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql)) {
   return async function handler(request) {
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
@@ -270,6 +273,15 @@ export function createHandler(repository = databaseRepository, authenticate = au
           { status: 401 },
         );
       }
+
+      const member = await access.member(user.id);
+      const accessPayload = request.method === "POST" && !["/leads", "/deals"].includes(pathname)
+        ? await readJson(request) : null;
+      const result = await accessRoute(access, user, member, request.method, pathname, accessPayload);
+      if (result !== undefined) return json({ data: result });
+
+      const clientResult = await clientRoute(clients, member, request.method, url, pathname, accessPayload);
+      if (clientResult !== undefined) return json({ data: clientResult });
 
       if (request.method === "GET" && pathname === "/leads") {
         return json({ data: await repository.listLeads() });
@@ -306,7 +318,7 @@ export function createHandler(repository = databaseRepository, authenticate = au
           listing: requiredText(payload, "listing") || "Модель уточняется",
           category: requiredText(payload, "category") || "Новая заявка",
           price: payload?.price || 0,
-          manager: requiredText(payload, "manager") || "Не назначен",
+          manager: member.role === "manager" ? member.name : requiredText(payload, "manager") || "Не назначен",
           nextTask: requiredText(payload, "nextTask") || "Связаться с клиентом в течение 15 минут",
         });
         return json({ data: lead }, { status: 201 });
@@ -329,7 +341,7 @@ export function createHandler(repository = databaseRepository, authenticate = au
           product,
           amount: payload?.amount || 0,
           stage: requiredText(payload, "stage") || "Квалификация",
-          manager: requiredText(payload, "manager") || "Не назначен",
+          manager: member.role === "manager" ? member.name : requiredText(payload, "manager") || "Не назначен",
           task: requiredText(payload, "task") || "Проверить наличие и связаться с клиентом",
           due: requiredText(payload, "due") || "Сегодня, 18:00",
           virtual: Boolean(payload?.virtual),
@@ -342,6 +354,7 @@ export function createHandler(repository = databaseRepository, authenticate = au
         { status: 404 },
       );
     } catch (error) {
+      if (error instanceof AccessError) return json({ error: "access_error", message: error.message }, { status: error.status });
       console.error("3K API request failed", error);
       return json(
         { error: "internal_error", message: "The 3K backend could not process the request" },
