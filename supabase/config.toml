@@ -1,0 +1,3 @@
+[functions.crm-api]
+entrypoint = "./functions/crm-api/index.js"
+verify_jwt = false

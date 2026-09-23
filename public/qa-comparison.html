@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QA comparison</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f4f5f7;
+        color: #12213d;
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+      }
+
+      .wrap {
+        width: 1440px;
+        height: 1024px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .pane {
+        background: #ffffff;
+        border: 1px solid #dfe4ec;
+        border-radius: 8px;
+        display: grid;
+        grid-template-rows: 34px 1fr;
+        overflow: hidden;
+      }
+
+      .label {
+        font-size: 13px;
+        font-weight: 800;
+        padding: 8px 12px;
+        border-bottom: 1px solid #dfe4ec;
+      }
+
+      .image {
+        display: grid;
+        place-items: center;
+        background: #f8f9fb;
+      }
+
+      img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="pane">
+        <div class="label">Источник: выбранный вариант дизайна</div>
+        <div class="image">
+          <img src="/assets/design-reference.png" alt="Исходный дизайн CRM" />
+        </div>
+      </div>
+      <div class="pane">
+        <div class="label">Реализация: экран Шоурум</div>
+        <div class="image">
+          <img src="/assets/showroom-implementation.png" alt="Реализация экрана Шоурум" />
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
