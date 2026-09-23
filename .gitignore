@@ -1,0 +1,23 @@
+node_modules/
+dist/
+
+# Local build and document-rendering artifacts
+output/
+tmp/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# OS and editor metadata
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
