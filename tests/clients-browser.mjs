@@ -8,6 +8,8 @@ let client;
 let tasks = [];
 let conflict = false;
 let creates = 0;
+let taskConflict = false;
+const taskEvents = [];
 const errors = [];
 try {
   const context = await browser.newContext();
@@ -25,6 +27,22 @@ try {
     else if (path === "/team") data = [member];
     else if (path === "/assignment-rules") data = {};
     else if (path === "/sales/summary") data = { leads: 0, deals: 0, clients: client ? 1 : 0 };
+    else if (path === "/tasks" && write) {
+      tasks.push({ id, ...payload, contextId: payload.contextId, label: client.name, version: 1, assignee: member.name, assigneeId: member.id });
+      taskEvents.push({id:"event-1",action:"Создана задача",actor:member.name,createdAt:new Date().toISOString()}); data={id};
+    }
+    else if (path === "/tasks") {
+      const today = new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Moscow"}).format(new Date());
+      const filter=url.searchParams.get("filter");
+      data={items:tasks.filter(task=>filter==="completed" ? !!task.completedAt : !task.completedAt && (filter==="active" || filter==="today" && task.date===today || filter==="overdue" && task.date<today || filter==="upcoming" && task.date>today)),hasMore:false};
+    }
+    else if (path === `/tasks/${id}/history`) data=taskEvents;
+    else if (path === `/tasks/${id}` && write) {
+      if(taskConflict) return route.fulfill({status:409,json:{message:"Задача изменена другим сотрудником"}});
+      Object.assign(tasks[0],payload,{version:tasks[0].version+1});
+      if("completed" in payload) tasks[0].completedAt=payload.completed ? new Date().toISOString() : null;
+      taskEvents.push({id:crypto.randomUUID(),action:"Задача обновлена",actor:member.name,createdAt:new Date().toISOString()});data={id};
+    }
     else if (path === "/clients" && write) { creates++; client = { ...payload, id: "C-1", displayName: payload.name, version: 1 }; data = client; }
     else if (path === "/clients") data = { items: client && (!url.searchParams.get("q") || client.phone.includes(url.searchParams.get("q"))) ? [client] : [], hasMore: false };
     else if (path === "/clients/C-1/tasks" && write) { tasks.push({ id, ...payload, version: 1, assignee: member.name, assigneeId: member.id }); data = { id }; }
@@ -59,17 +77,45 @@ try {
   assert.equal(await page.getByLabel("Название / ФИО", { exact: true }).inputValue(), "Несохранённое изменение");
   await page.getByRole("button", { name: "Отменить изменения", exact: true }).click();
   assert.equal(await page.getByLabel("Название / ФИО", { exact: true }).inputValue(), "Клиент проверки");
-  await page.getByLabel("Новая задача по клиенту", { exact: true }).fill("Перезвонить клиенту");
-  await page.getByLabel("Дата задачи по клиенту", { exact: true }).fill("2026-10-01");
+  await page.getByLabel("Новая задача", { exact: true }).fill("Перезвонить клиенту");
+  await page.getByLabel("Дата задачи", { exact: true }).fill("2020-01-01");
   await page.getByRole("button", { name: "Поставить задачу", exact: true }).click();
   await page.getByText("Перезвонить клиенту", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Готово", exact: true }).click();
+  await page.getByLabel("Фильтр задач").selectOption("completed");
   await page.getByRole("button", { name: "Вернуть", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Вернуть", exact: true }).click();
+  await page.getByLabel("Фильтр задач").selectOption("active");
+  await page.getByRole("button",{name:"Изменить: Перезвонить клиенту",exact:true}).click();
+  await page.getByLabel("Новый срок задачи").fill("2099-01-01");
+  taskConflict=true;
+  await page.getByRole("button",{name:"Сохранить задачу",exact:true}).click();
+  await page.getByRole("alert").filter({hasText:"Задача изменена"}).waitFor();
+  assert.equal(await page.getByLabel("Новый срок задачи").inputValue(),"2099-01-01");
+  await page.getByRole("button",{name:"Отменить редактирование задачи",exact:true}).click();
+  taskConflict=false;
+  await page.getByRole("button",{name:"Сегодня",exact:true}).click();
+  await page.getByLabel("Фильтр задач").selectOption("overdue");
+  await page.getByText("Перезвонить клиенту",{exact:true}).waitFor();
+  await page.getByRole("button",{name:"История: Перезвонить клиенту",exact:true}).click();
+  await page.getByText("Создана задача",{exact:true}).waitFor();
+  await page.getByRole("button",{name:"Изменить: Перезвонить клиенту",exact:true}).click();
+  await page.getByLabel("Новый срок задачи").fill("2099-01-01");
+  await page.getByRole("button",{name:"Сохранить задачу",exact:true}).click();
+  await page.getByText("Нет задач по выбранному фильтру",{exact:true}).waitFor();
+  await page.getByLabel("Фильтр задач").selectOption("upcoming");
+  await page.getByText("Перезвонить клиенту",{exact:true}).waitFor();
+  await page.reload();
+  await page.getByLabel("Фильтр задач").selectOption("upcoming");
+  await page.getByText("Перезвонить клиенту",{exact:true}).waitFor();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.screenshot({ path: `/tmp/three-k-clients-${width}.png`, fullPage: true });
+    await page.screenshot({ path: `/tmp/three-k-tasks-${width}.png`, fullPage: true });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Overflow at ${width}`);
   }
+  await page.getByRole("button",{name:"C-1 · Клиент проверки",exact:true}).click();
+  await page.getByRole("heading",{name:"Клиент проверки",exact:true}).waitFor();
+  assert.equal(await page.getByLabel("Паспортные данные",{exact:true}).inputValue(),"Тестовый реквизит");
   assert.deepEqual(errors, []);
-  console.log("Clients: create, reopen, conflict, cancel, task completion, desktop/mobile passed (mock API).");
+  console.log("Clients and tasks: creation, completion/reopening, task conflict draft, rescheduling, Today overdue/upcoming, history, reload and desktop/mobile passed (mock API).");
 } finally { await browser.close(); }

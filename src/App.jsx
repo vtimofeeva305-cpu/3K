@@ -3,6 +3,7 @@ import logo from "./assets/3k-logo.svg";
 import { AccessScreen, ROLE_LABELS, TeamScreen, isLeader, useAccess } from "./access.jsx";
 import { ClientDirectory } from "./clients.jsx";
 import { SalesWorkspace, NewSalesDeal } from "./sales.jsx";
+import { TaskPanel } from "./tasks.jsx";
 import {
   ArrowRight,
   Bell,
@@ -89,6 +90,7 @@ export function App() {
   const [note, setNote] = useState("");
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [clientDirty, setClientDirty] = useState(false);
+  const [recordTarget, setRecordTarget] = useState(null);
   const workingManagers = access.team.filter((person) => person.working).map((person) => person.id);
   const assignmentRules = access.rules;
   const managers = access.team;
@@ -160,7 +162,16 @@ export function App() {
   const go = (next) => {
     if (next !== screen && clientDirty && !window.confirm("Отменить несохранённые изменения карточки?")) return;
     if (next === "reports" && !isLeader(access.member)) return;
+    setRecordTarget(null);
     setScreen(next);
+    setNoticeOpen(false);
+  };
+
+  const openTaskContext = (kind, id) => {
+    if (!["clients", "leads", "deals"].includes(kind)) return;
+    if (clientDirty && !window.confirm("Отменить несохранённые изменения?")) return;
+    setRecordTarget({ kind, id });
+    setScreen(kind);
     setNoticeOpen(false);
   };
 
@@ -248,12 +259,12 @@ export function App() {
           onSignOut={handleSignOut}
         />
 
-        {screen === "today" && <TodayScreen api={access.api} go={go} leader={isLeader(access.member)} />}
+        {screen === "today" && <TodayScreen api={access.api} go={go} leader={isLeader(access.member)} member={access.member} team={access.team} onDirtyChange={setClientDirty} onOpen={openTaskContext} />}
         {screen === "showroom" && <ShowroomScreen notify={notify} waitAdded={waitAdded} setWaitAdded={setWaitAdded} />}
-        {["leads", "deals", "pipeline", "deal", "landing"].includes(screen) && <SalesWorkspace key={`${screen}:${newDealOpen}`} api={access.api} member={access.member} team={access.team}
+        {["leads", "deals", "pipeline", "deal", "landing"].includes(screen) && <SalesWorkspace key={`${screen}:${newDealOpen}:${recordTarget?.id || ""}`} initialId={recordTarget?.id} api={access.api} member={access.member} team={access.team}
           kind={["leads", "landing"].includes(screen) ? "leads" : "deals"} intake={screen === "landing"} query={query} notify={notify} onDirtyChange={setClientDirty} />}
         {screen === "clients" && (
-          <ClientDirectory api={access.api} notify={notify} onDirtyChange={setClientDirty} />
+          <ClientDirectory key={recordTarget?.id || "directory"} initialId={recordTarget?.id} api={access.api} notify={notify} onDirtyChange={setClientDirty} member={access.member} team={access.team} />
         )}
         {screen === "managers" && (
           <TeamScreen access={access} />
@@ -367,7 +378,7 @@ function EmptyScreen({ title, message = "Записей пока нет" }) {
   return <section className="screen"><div className="page-heading"><h1>{title}</h1></div><p className="empty-state">{message}</p></section>;
 }
 
-function TodayScreen({ go, api, leader }) {
+function TodayScreen({ go, api, leader, member, team, onDirtyChange, onOpen }) {
   const [counts, setCounts] = useState(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -391,10 +402,7 @@ function TodayScreen({ go, api, leader }) {
         </button>
       )}
     </div>
-    <section className="plain-section today-tasks">
-      <div className="section-title"><h2>Задачи на сегодня</h2><CalendarCheck size={20} /></div>
-      <div className="today-empty"><span className="empty-icon"><ListChecks size={30} weight="light" /></span><h3>Задач пока нет</h3><p>Здесь появятся запланированные звонки<br />и следующие шаги по клиентам.</p></div>
-    </section>
+    <TaskPanel api={api} member={member} team={team} onDirtyChange={onDirtyChange} onOpen={onOpen} />
   </section>;
 }
 

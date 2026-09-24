@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MagnifyingGlass, Plus, ArrowClockwise, FloppyDisk, X } from "@phosphor-icons/react";
+import { TaskPanel } from "./tasks.jsx";
 
 const fields = [["name", "Название / ФИО"], ["inn", "ИНН"], ["phone", "Номер телефона"],
   ["email", "Почта"], ["address", "Адрес"], ["passport", "Паспортные данные"],
@@ -7,7 +8,7 @@ const fields = [["name", "Название / ФИО"], ["inn", "ИНН"], ["phon
   ["bank", "Банк"], ["account", "Расчётный счёт"], ["director", "Руководитель"]];
 const emptyClient = () => ({ form: "Физлицо", ...Object.fromEntries(fields.map(([key]) => [key, ""])), requestId: crypto.randomUUID() });
 
-export function ClientDirectory({ api, notify, onDirtyChange }) {
+export function ClientDirectory({ api, notify, onDirtyChange, member, team, initialId = null }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -15,7 +16,7 @@ export function ClientDirectory({ api, notify, onDirtyChange }) {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(initialId);
   const [draft, setDraft] = useState(null);
   const [original, setOriginal] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -23,8 +24,9 @@ export function ClientDirectory({ api, notify, onDirtyChange }) {
   const [cardError, setCardError] = useState("");
   const [cardRevision, setCardRevision] = useState(0);
   const saving = useRef(false);
+  const [taskDirty, setTaskDirty] = useState(false);
   const dirty = draft && JSON.stringify(draft) !== JSON.stringify(original);
-  useEffect(() => { onDirtyChange?.(Boolean(dirty || busy)); return () => onDirtyChange?.(false); }, [dirty, busy, onDirtyChange]);
+  useEffect(() => { onDirtyChange?.(Boolean(dirty || busy || taskDirty)); return () => onDirtyChange?.(false); }, [dirty, busy, taskDirty, onDirtyChange]);
 
   useEffect(() => {
     let active = true;
@@ -58,7 +60,7 @@ export function ClientDirectory({ api, notify, onDirtyChange }) {
   }, [dirty]);
 
   const select = id => {
-    if (saving.current || (dirty && !window.confirm("Отменить несохранённые изменения?"))) return;
+    if (saving.current || ((dirty || taskDirty) && !window.confirm("Отменить несохранённые изменения?"))) return;
     setCardError(""); setSelected(id);
     if (id === "new") { const data = emptyClient(); setDraft(data); setOriginal(data); setCardLoading(false); }
   };
@@ -95,7 +97,7 @@ export function ClientDirectory({ api, notify, onDirtyChange }) {
       <section className="client-card">
         {cardLoading && <p role="status">Загрузка карточки…</p>}
         {cardError && <div role="alert"><p>{cardError}</p>{selected !== "new" && <button className="secondary-button" disabled={busy} onClick={() => {
-          if (!dirty || window.confirm("Загрузить сохранённую версию? Несохранённые изменения будут отменены.")) setCardRevision(value => value + 1);
+          if (!(dirty || taskDirty) || window.confirm("Загрузить сохранённую версию? Несохранённые изменения будут отменены.")) setCardRevision(value => value + 1);
         }}><ArrowClockwise size={18} />Обновить карточку</button>}</div>}
         {!selected && <p className="empty-state">Выберите клиента</p>}
         {draft && !cardLoading && <form onSubmit={save}>
@@ -110,7 +112,7 @@ export function ClientDirectory({ api, notify, onDirtyChange }) {
             </label>)}
           </div></fieldset>
         </form>}
-        {draft?.id && !cardLoading && <ClientTasks key={draft.id} clientId={draft.id} api={api} notify={notify} />}
+        {draft?.id && !cardLoading && <TaskPanel key={draft.id} kind="clients" contextId={draft.id} api={api} member={member} team={team} onDirtyChange={setTaskDirty} />}
       </section>
     </div>
   </section>;

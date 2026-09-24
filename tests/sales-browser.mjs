@@ -21,6 +21,7 @@ try {
     if (path==="/me") data={member};
     else if (path==="/team") data=[member];
     else if (path==="/assignment-rules") data={};
+    else if (path==="/tasks") data={items:[],hasMore:false};
     else if (path==="/sales/summary") data={leads:records.leads.length,deals:records.deals.length,clients:1};
     else if (path==="/clients") data={items:[{id:"C-1",displayName:"Покупатель",phone:"+79000000001"}],hasMore:false};
     else {

@@ -1,6 +1,33 @@
 # 3K: implementation status
 
-## Current increment: leads and deals
+## Current increment: unified tasks and Today
+
+Deployed migration 20260923220826_unified_tasks and three-k-api v6 with JWT
+verification. Existing client_tasks rows/IDs remain in place; the table now supports
+exactly one client, lead or deal context. Legacy client-task endpoints still work.
+
+- Shared task UI in client, lead and deal cards; actual task feed on Today.
+- Today, overdue, upcoming, active and completed filters; bounded pagination.
+- Server-side business dates use Europe/Moscow. Deadlines are dates, not times.
+- Managers see their own global feed; leaders can select the whole team.
+  Context cards show shared tasks, but only assignees/leaders can modify them.
+- Titles, deadlines, completion/reopening and leader-only reassignment persist.
+- Future tasks may be assigned to off-duty members; lead assignment rules are unchanged.
+- Metadata history is committed atomically, retries do not duplicate tasks, and
+  version conflicts preserve UI drafts. No destructive task deletion is exposed.
+- Today task context links open the corresponding client/lead/deal card.
+- Dirty task forms participate in navigation confirmation and unload protection.
+
+Verification: 27 Node tests; actual PostgreSQL/PGlite repository tests covering
+legacy preservation, all three contexts, permission checks, Moscow date filters,
+idempotency, stale writes, rollback and private grants; browser client/task flow
+and sales regression at desktop/mobile widths; production build. Browser tests
+use mocked HTTP, and no test rows were inserted into the production database.
+Authenticated live role acceptance and multi-connection contention remain unverified.
+Security advisor reports no policies for private three_k tables, intentionally:
+anon/authenticated have no table grants and API membership/ownership checks gate access.
+
+## Previous increment: leads and deals
 
 Implemented and deployed:
 - Private schema migration 20260923214212_sales_persistence; three-k-api v5,
@@ -69,18 +96,17 @@ configured Supabase API when signed in.
 | 5. Clients | Core implemented | Add linked leads/deals when their persistence is implemented; test live authenticated workflow. |
 | 6. Leads / assignment | Core implemented | Live acceptance, legacy reconciliation and inbound integrations remain. |
 | 7. Deals / payments | Partial | Fields, stages, virtual flag and closure reasons persist; payment ledger and connected kanban remain. |
-| 8. Tasks / history / today | Partial | Client tasks persist. Unify with deal tasks, history, Today and notifications; add deadline changes. |
+| 8. Tasks / history / today | Core implemented | Unified task feed, contexts, deadline changes and history work. Notifications and live acceptance remain. |
 | 9. Showroom / inbound sources | Pending | Inventory, reservations, public lead intake and available Avito integration. |
 | 10. ROP reporting | Pending | Agree formulas and build all tabs from operational events. |
 | 11. Release acceptance | Pending | Full role-based live workflow, recovery, retry and concurrency checks. |
 
 ## Next implementation increment
 
-1. Unify client, lead and deal tasks with deadlines, reassignment and history.
-2. Connect the Today task feed and overdue filters to these records.
-3. Add linked sales navigation in the client card and connected kanban.
-4. Add a payment ledger with immutable entries, corrections and computed balance.
-5. Exercise the complete workflow with actual authenticated roles before publishing.
+1. Add linked sales navigation in the client card and connected kanban.
+2. Add a payment ledger with immutable entries, corrections and computed balance.
+3. Implement notifications and inbound-source integrations.
+4. Exercise the complete workflow with actual authenticated roles before publishing.
 
 Accounting documents, EDI, 1C and payment acquiring are outside the accepted scope.
 No demonstration records are inserted into the live project by this increment.

@@ -1,6 +1,7 @@
 import { AccessError, accessRoute, createAccessRepository } from "./access.js";
 import { clientRoute, createClientRepository } from "./clients.js";
 import { salesRoute, createSalesRepository } from "./sales.js";
+import { taskRoute, createTaskRepository } from "./tasks.js";
 
 const FUNCTION_SLUG = "three-k-api";
 
@@ -253,7 +254,7 @@ export async function authenticateSupabaseUser(request) {
   return user?.id ? user : null;
 }
 
-export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql), sales = createSalesRepository(getSql)) {
+export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql), sales = createSalesRepository(getSql), tasks = createTaskRepository(getSql)) {
   return async function handler(request) {
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
@@ -281,6 +282,8 @@ export function createHandler(repository = databaseRepository, authenticate = au
       const result = await accessRoute(access, user, member, request.method, pathname, accessPayload);
       if (result !== undefined) return json({ data: result });
 
+      const taskResult = await taskRoute(tasks, member, request.method, url, pathname, accessPayload);
+      if (taskResult !== undefined) return json({ data: taskResult });
       const clientResult = await clientRoute(clients, member, request.method, url, pathname, accessPayload);
       if (clientResult !== undefined) return json({ data: clientResult });
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowClockwise, FloppyDisk, Plus, X, ArrowRight } from "@phosphor-icons/react";
 import { isLeader } from "./access.jsx";
+import { TaskPanel } from "./tasks.jsx";
 
 const stages = ["Квалификация", "Подбор", "Ожидается оплата", "Связаться позже", "Успешно", "Отказ"];
 const rub = value => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 2 }).format(value || 0);
@@ -12,14 +13,14 @@ function editable(record, kind) {
   return Object.fromEntries([...keys, "version"].map(key => [key, record[key] ?? ""]));
 }
 
-export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyChange, notify, intake = false }) {
+export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyChange, notify, intake = false, initialId = null }) {
   const [page, setPage] = useState(0);
   const [status, setStatus] = useState("");
   const [data, setData] = useState({ items: [], hasMore: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
-  const [selected, setSelected] = useState(intake ? "new" : null);
+  const [selected, setSelected] = useState(intake ? "new" : initialId);
   const [cardKind, setCardKind] = useState(kind);
   const dirty = useRef(false);
   useEffect(() => { setPage(0); }, [query, status]);
@@ -81,10 +82,11 @@ function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted
   const [revision, setRevision] = useState(0);
   const [target, setTarget] = useState("");
   const inFlight = useRef(false);
+  const [taskDirty, setTaskDirty] = useState(false);
   const dirty = !!draft && (id === "new" ? Object.entries(draft).some(([key,value]) => !["requestId","stage","virtual","amount","price"].includes(key) && !!value) : JSON.stringify(draft) !== JSON.stringify(original));
   const dirtyCallback = useRef(onDirtyChange);
   dirtyCallback.current = onDirtyChange;
-  useEffect(() => { dirtyCallback.current?.(dirty || busy); return () => dirtyCallback.current?.(false); }, [dirty,busy]);
+  useEffect(() => { dirtyCallback.current?.(dirty || busy || taskDirty); return () => dirtyCallback.current?.(false); }, [dirty,busy,taskDirty]);
   useEffect(() => {
     if (!dirty) return;
     const handler = event => { event.preventDefault(); event.returnValue = ""; };
@@ -111,7 +113,7 @@ function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted
     finally { inFlight.current = false; setBusy(false); }
   };
   const canEdit = id === "new" || isLeader(member) || record?.assigneeId === member.id;
-  const refresh = () => { if (!dirty || window.confirm("Загрузить сохранённую версию и отменить изменения?")) setRevision(value => value + 1); };
+  const refresh = () => { if (!(dirty || taskDirty) || window.confirm("Загрузить сохранённую версию и отменить изменения?")) setRevision(value => value + 1); };
   return <>
     <div className="client-card-head"><h2>{id === "new" ? kind === "leads" ? "Новый лид" : "Новая сделка" : id}</h2>{id !== "new" && <button className="icon-button" title="Обновить карточку" aria-label="Обновить карточку" disabled={busy} onClick={refresh}><ArrowClockwise size={18} /></button>}</div>
     {error && <p role="alert">{error}</p>}{loading && <p role="status">Загрузка карточки…</p>}
@@ -136,8 +138,9 @@ function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted
         </div></fieldset>
         {(id === "new" || kind === "deals") && canEdit && <div className="button-row"><button className="primary-button" disabled={busy || (id !== "new" && !dirty)}><FloppyDisk size={18} />{busy ? "Сохранение…" : "Сохранить"}</button>{id !== "new" && <button className="ghost-button" type="button" disabled={busy || !dirty} onClick={() => { setDraft(original); setError(""); }}>Отменить</button>}</div>}
       </form>
-      {kind === "leads" && record && canEdit && <button className="primary-button" disabled={busy} onClick={() => run(`/leads/${id}/convert`,{version:record.version},true)}><ArrowRight size={18} />{record.dealId ? `Открыть ${record.dealId}` : "Создать сделку"}</button>}
+      {kind === "leads" && record && canEdit && <button className="primary-button" disabled={busy || taskDirty} onClick={() => run(`/leads/${id}/convert`,{version:record.version},true)}><ArrowRight size={18} />{record.dealId ? `Открыть ${record.dealId}` : "Создать сделку"}</button>}
       {record?.events?.length > 0 && <section className="form-section"><h3>История</h3>{record.events.map(event => <div className="sales-event" key={event.id}><strong>{event.action}</strong><small>{event.actor} · {new Date(event.createdAt).toLocaleString("ru-RU")}</small></div>)}</section>}
+      {record && <TaskPanel api={api} member={member} team={team} kind={kind} contextId={record.id} canCreate={canEdit} onDirtyChange={setTaskDirty} />}
     </>}
   </>;
 }
