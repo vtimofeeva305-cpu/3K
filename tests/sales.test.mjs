@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import { validateSale, salesRoute } from "../supabase/functions/three-k-api/sales.js";
 const lead = { client:"Клиент",phone:"89000000000",listing:"Sea-Doo" };
 const deal = { clientId:"C-1",product:"Sea-Doo",amount:"100.25",virtual:true };
+test("board and stage routes preserve filters and require versions",async()=>{
+  const calls=[];
+  const repo={board:async options=>{calls.push(options);return {};},moveStage:async(...args)=>{calls.push(args);return {};}};
+  await salesRoute(repo,{},"GET",new URL("https://test/deals/board?q=abc&status=open"),"/deals/board",null);
+  assert.deepEqual(calls[0],{q:"abc",status:"open"});
+  await assert.rejects(salesRoute(repo,{},"POST",new URL("https://test/deals/D-1/stage"),"/deals/D-1/stage",{stage:"Подбор"}),error=>error.status===422);
+  await salesRoute(repo,{id:"actor"},"POST",new URL("https://test/deals/D-1/stage"),"/deals/D-1/stage",{stage:"Подбор",lossReason:"",version:2,amount:999});
+  assert.deepEqual(calls[1],["D-1","Подбор","",2,{id:"actor"}]);
+});
 test("source and responsibility cannot be forged in ordinary writes",()=>{
   for (const field of ["source","sourceCode","source_code","manager","assigneeId","assignee_id","status","lead_id"]) {
     assert.throws(()=>validateSale({...lead,[field]:"fake"},"leads"),error=>error.status===422);

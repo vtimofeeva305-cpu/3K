@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+const browser=await chromium.launch({headless:true});
+const member={id:"00000000-0000-4000-8000-000000000001",name:"Manager",role:"manager",working:true};
+const notification=id=>({id:String(id),kind:"clients",contextId:"C-1",event:"assigned",title:"Вам назначена задача",body:`Задача ${id}: связаться с покупателем`,readAt:null,createdAt:new Date().toISOString()});
+const rows=Array.from({length:32},(_,i)=>notification(32-i)),errors=[];
+let failRead=false,failList=false;
+try{
+  const context=await browser.newContext();
+  await context.addInitScript(()=>localStorage.setItem("three-k-auth-session",JSON.stringify({accessToken:"test",expiresAt:Date.now()+3600000})));
+  const page=await context.newPage();page.on("pageerror",error=>errors.push(error.message));
+  await page.route("**/auth/v1/user",route=>route.fulfill({json:{id:member.id,user_metadata:{name:member.name}}}));
+  await page.route("**/functions/v1/three-k-api/**",async route=>{
+    const url=new URL(route.request().url()),path=url.pathname.split("three-k-api")[1];let data;
+    if(path==="/me")data={member};
+    else if(path==="/team")data=[member];
+    else if(path==="/assignment-rules")data={};
+    else if(path==="/sales/summary")data={leads:0,deals:0,clients:1};
+    else if(["/tasks","/deals","/leads"].includes(path))data={items:[],hasMore:false};
+    else if(path==="/clients")data={items:[{id:"C-1",displayName:"Покупатель",phone:"+79000000001"}],hasMore:false};
+    else if(path==="/clients/C-1")data={id:"C-1",name:"Покупатель",displayName:"Покупатель",form:"Физлицо",phone:"+79000000001",version:1};
+    else if(path==="/notifications/count")data={unread:rows.filter(row=>!row.readAt).length};
+    else if(path==="/notifications"){
+      if(failList)return route.fulfill({status:500,json:{message:"Не удалось загрузить уведомления"}});
+      const items=rows.filter(row=>(url.searchParams.get("filter")!=="unread" || !row.readAt) && (!url.searchParams.get("before") || Number(row.id)<Number(url.searchParams.get("before"))));
+      data={items:items.slice(0,30),nextCursor:items.length>30?items[29].id:null};
+    }else if(path==="/notifications/read"){
+      if(failRead)return route.fulfill({status:500,json:{message:"Не удалось отметить уведомление"}});
+      const payload=route.request().postDataJSON();
+      rows.filter(row=>payload.ids.includes(row.id)).forEach(row=>row.readAt=payload.read?new Date().toISOString():null);data={ids:payload.ids};
+    }else return route.fulfill({status:404,json:{message:`Unknown ${path}`}});
+    return route.fulfill({json:{data}});
+  });
+  await page.goto(process.env.TEST_BASE_URL || "http://127.0.0.1:5177");
+  const bell=page.getByRole("button",{name:"Уведомления",exact:true}),panel=page.getByRole("region",{name:"Внутренние уведомления"});
+  await page.getByLabel("Непрочитанных: 32",{exact:true}).waitFor();await bell.click();
+  await panel.locator('.notification-item').first().waitFor();assert.equal(await panel.locator('.notification-item').count(),30);
+  await panel.getByRole("button",{name:"Далее",exact:true}).click();
+  await panel.getByRole("button",{name:"Отметить прочитанным 1",exact:true}).waitFor();assert.equal(await panel.locator('.notification-item').count(),2);
+  await panel.getByRole("button",{name:"Назад",exact:true}).click();
+  failRead=true;
+  await panel.getByRole("button",{name:"Отметить прочитанным 32",exact:true}).click();
+  await panel.getByRole("alert").waitFor();assert.equal(rows[0].readAt,null);
+  failRead=false;
+  await panel.getByRole("button",{name:"Отметить прочитанным 32",exact:true}).click();
+  await page.getByLabel("Непрочитанных: 31",{exact:true}).waitFor();
+  await panel.getByRole("button",{name:"Отметить непрочитанным 32",exact:true}).click();
+  await page.getByLabel("Непрочитанных: 32",{exact:true}).waitFor();
+  rows.unshift(notification(33));
+  await panel.getByRole("button",{name:"Прочитать показанные",exact:true}).click();
+  await panel.getByRole("button",{name:"Отметить прочитанным 33",exact:true}).waitFor();assert.equal(rows[0].readAt,null);
+  await panel.getByRole("button",{name:"Непрочитанные",exact:true}).click();
+  await panel.getByRole("button",{name:"Отметить прочитанным 1",exact:true}).waitFor();assert.equal(await panel.locator('.notification-item').count(),3);
+  await panel.locator('.notification-link').first().click();
+  await page.getByLabel("Название / ФИО",{exact:true}).waitFor();assert.equal(await page.getByLabel("Название / ФИО",{exact:true}).inputValue(),"Покупатель");
+  await page.getByLabel("Название / ФИО",{exact:true}).fill("Черновик");
+  await bell.click();await panel.locator('.notification-link').first().waitFor();
+  page.once("dialog",dialog=>dialog.dismiss());
+  await panel.locator('.notification-link').first().click();
+  assert.equal(rows.find(row=>row.id==="2").readAt,null);
+  await page.keyboard.press("Escape");assert.equal(await panel.count(),0);
+  await page.getByRole("button",{name:"Отменить изменения",exact:true}).click();
+  await page.reload();await bell.click();
+  await panel.locator('.notification-item').first().waitFor();assert.ok(rows.find(row=>row.id==="32").readAt);
+  failList=true;await panel.getByRole("button",{name:"Обновить уведомления",exact:true}).click();
+  await panel.getByRole("alert").waitFor();
+  failList=false;await panel.getByRole("button",{name:"Обновить уведомления",exact:true}).click();
+  await panel.locator('.notification-item').first().waitFor();
+  for(const width of [1440,390]){
+    await page.setViewportSize({width,height:900});await page.screenshot({path:`/tmp/three-k-notifications-${width}.png`,fullPage:true});
+    const box=await panel.boundingBox();assert.ok(box.x>=0 && box.x+box.width<=width+1);
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  }
+  await page.keyboard.press("Escape");await bell.click();
+  await panel.getByRole("button",{name:"Отметить непрочитанным 33",exact:true}).waitFor();
+  await panel.getByRole("button",{name:"Непрочитанные",exact:true}).click();
+  await panel.getByRole("button",{name:"Отметить прочитанным 2",exact:true}).waitFor();
+  await panel.getByRole("button",{name:"Прочитать показанные",exact:true}).click();
+  await panel.getByText("Нет непрочитанных уведомлений",{exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
+  console.log("Notifications browser passed: badge, pagination, read/unread, batch race, context navigation, dirty guard, reload, errors/retry, empty state and desktop/mobile (mock API).");
+}finally{await browser.close();}

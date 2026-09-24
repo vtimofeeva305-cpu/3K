@@ -8,7 +8,7 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
     "test:sites": "node --test tests/sites-worker.test.mjs",
-    "test:supabase": "node --test tests/three-k-api.test.mjs tests/access.test.mjs tests/clients.test.mjs tests/sales.test.mjs tests/tasks.test.mjs"
+    "test:supabase": "node --test tests/three-k-api.test.mjs tests/access.test.mjs tests/clients.test.mjs tests/sales.test.mjs tests/tasks.test.mjs tests/payments.test.mjs tests/notifications.test.mjs tests/inventory.test.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

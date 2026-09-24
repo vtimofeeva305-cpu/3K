@@ -35,7 +35,7 @@ export function validateSale(payload, kind) {
   if (closeDate && (typeof closeDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(closeDate) || !Number.isFinite(Date.parse(closeDate)) || new Date(closeDate).toISOString().slice(0, 10) !== closeDate)) fail(422, "Проверьте дату закрытия");
   const lossReason = text(payload.lossReason);
   if (stage === "Отказ" && !lossReason) fail(422, "Укажите причину отказа");
-  return { client_id: clientId, product: text(payload.product, true), amount: money(payload.amount), stage,
+  return { client_id: clientId, product: text(payload.product, !payload.virtual) || "Модель уточняется", amount: money(payload.amount), stage,
     virtual: payload.virtual, vin, close_date: closeDate, loss_reason: stage === "Отказ" ? lossReason : "" };
 }
 function checkVersion(row, version) {
@@ -87,7 +87,28 @@ export function createSalesRepository(getSql) {
         (select count(*)::int from three_k.deals) as deals, (select count(*)::int from three_k.clients) as clients`;
       return counts;
     },
-    async list(kind, { q, status, offset, clientId }) {
+    async board({ q, status }) {
+      const sql = await getSql();
+      const rows = await sql`with ranked as (
+        select d.*, d.close_date::text as close_date_text, m.display_name as assignee_name,
+          count(*) over (partition by d.stage) as stage_count,
+          sum(d.amount) over (partition by d.stage) as stage_amount,
+          row_number() over (partition by d.stage order by d.created_at desc,d.id desc) as position
+        from three_k.deals d left join three_k.members m on m.user_id=d.assignee_id
+        where (${status === ""} or d.status=${status})
+          and (${q === ""} or strpos(lower(d.client || ' ' || d.product || ' ' || d.id || ' ' || d.vin),lower(${q}))>0)
+      ) select * from ranked where position<=30 order by stage,position`;
+      const columns = new Map(SALES_STAGES.map(stage => [stage,{stage,total:0,amount:0,items:[],hasMore:false}]));
+      for (const row of rows) {
+        if (!columns.has(row.stage)) columns.set(row.stage,{stage:row.stage,items:[]});
+        const column = columns.get(row.stage);
+        column.total = Number(row.stage_count); column.amount = Number(row.stage_amount);
+        column.hasMore = column.total > 30;
+        column.items.push(map({...row,close_date:row.close_date_text}));
+      }
+      return { columns: [...columns.values()] };
+    },
+    async list(kind, { q, status, offset, clientId, stage = "" }) {
       const sql = await getSql();
       const rows = kind === "leads" ? await sql`select l.*, m.display_name as assignee_name from three_k.leads l left join three_k.members m on m.user_id=l.assignee_id
         where (${status === ""} or l.status=${status}) and (${clientId === ""} or l.client_id=${clientId})
@@ -95,6 +116,7 @@ export function createSalesRepository(getSql) {
         order by l.created_at desc,l.id desc limit 31 offset ${offset}`
         : await sql`select d.*, d.close_date::text as close_date, m.display_name as assignee_name from three_k.deals d left join three_k.members m on m.user_id=d.assignee_id
         where (${status === ""} or d.status=${status}) and (${clientId === ""} or d.client_id=${clientId})
+        and (${stage === ""} or d.stage=${stage})
         and (${q === ""} or strpos(lower(d.client || ' ' || d.product || ' ' || d.id || ' ' || d.vin),lower(${q}))>0)
         order by d.created_at desc,d.id desc limit 31 offset ${offset}`;
       return { items: rows.slice(0,30).map(map), hasMore: rows.length > 30 };
@@ -153,6 +175,24 @@ export function createSalesRepository(getSql) {
       });
       return this.get(kind,id);
     },
+    async moveStage(id, stage, lossReason, version, member) {
+      if (!SALES_STAGES.includes(stage)) fail(422,"Неизвестный этап сделки");
+      const reason = text(lossReason);
+      if (stage === "Отказ" && !reason) fail(422,"Укажите причину отказа");
+      const sql = await getSql();
+      await sql.begin(async tx => {
+        const previous = await row(tx,"deals",id,true);
+        canEdit(previous,member); checkVersion(previous,version);
+        const nextReason = stage === "Отказ" ? reason : "";
+        if (previous.stage === stage && previous.loss_reason === nextReason) return;
+        const closed = ["Успешно","Отказ"].includes(stage);
+        await tx`update three_k.deals set stage=${stage},loss_reason=${nextReason},
+          status=${closed ? "closed" : "open"},closed_at=case when ${closed} then coalesce(closed_at,now()) else null end,
+          version=version+1,updated_at=now() where id=${id}`;
+        await event(tx,"deals",id,member.id,`Этап: ${previous.stage} → ${stage}`);
+      });
+      return this.get("deals",id);
+    },
     async updateDeal(id, data, version, member) {
       const sql = await getSql();
       await sql.begin(async tx => {
@@ -193,8 +233,9 @@ export function createSalesRepository(getSql) {
 
 export async function salesRoute(repository, member, method, url, path, payload) {
   if (path === "/sales/summary" && method === "GET") return repository.summary();
+  if (path === "/deals/board" && method === "GET") return repository.board({q:(url.searchParams.get("q") || "").trim().slice(0,200),status:url.searchParams.get("status") || ""});
   const landing = path === "/intake/landing";
-  const match = path.match(/^\/(leads|deals)(?:\/([LD]-[a-z0-9-]{1,64})(?:\/(take|convert))?)?$/i);
+  const match = path.match(/^\/(leads|deals)(?:\/([LD]-[a-z0-9-]{1,64})(?:\/(take|convert|stage))?)?$/i);
   if (!match && !landing) return undefined;
   const [, rawKind = "leads", id, action] = match || [];
   const kind = rawKind.toLowerCase();
@@ -202,7 +243,7 @@ export async function salesRoute(repository, member, method, url, path, payload)
     if (id) return repository.get(kind,id);
     const offset = Number(url.searchParams.get("offset") || 0);
     if (!Number.isSafeInteger(offset) || offset < 0) fail(422,"Некорректная страница");
-    return repository.list(kind,{ q:(url.searchParams.get("q") || "").trim().slice(0,200),status:url.searchParams.get("status") || "",clientId:url.searchParams.get("clientId") || "",offset });
+    return repository.list(kind,{ q:(url.searchParams.get("q") || "").trim().slice(0,200),status:url.searchParams.get("status") || "",clientId:url.searchParams.get("clientId") || "",stage:(url.searchParams.get("stage") || "").slice(0,500),offset });
   }
   if (method !== "POST") fail(405,"Метод не поддерживается");
   if (!id) {
@@ -217,6 +258,7 @@ export async function salesRoute(repository, member, method, url, path, payload)
     return repository.take(kind,id,payload.version,member,target);
   }
   if (action === "convert" && kind === "leads") return repository.convert(id,payload.version,member);
+  if (action === "stage" && kind === "deals") return repository.moveStage(id,payload.stage,payload.lossReason,payload.version,member);
   if (!action && kind === "deals") return repository.updateDeal(id,validateSale(payload,kind),payload.version,member);
   fail(405,"Метод не поддерживается");
 }

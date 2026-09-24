@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MagnifyingGlass, Plus, ArrowClockwise, FloppyDisk, X } from "@phosphor-icons/react";
 import { TaskPanel } from "./tasks.jsx";
+import { ClientSales } from "./sales-board.jsx";
 
 const fields = [["name", "Название / ФИО"], ["inn", "ИНН"], ["phone", "Номер телефона"],
   ["email", "Почта"], ["address", "Адрес"], ["passport", "Паспортные данные"],
@@ -8,7 +9,7 @@ const fields = [["name", "Название / ФИО"], ["inn", "ИНН"], ["phon
   ["bank", "Банк"], ["account", "Расчётный счёт"], ["director", "Руководитель"]];
 const emptyClient = () => ({ form: "Физлицо", ...Object.fromEntries(fields.map(([key]) => [key, ""])), requestId: crypto.randomUUID() });
 
-export function ClientDirectory({ api, notify, onDirtyChange, member, team, initialId = null }) {
+export function ClientDirectory({ api, notify, onDirtyChange, member, team, initialId = null, onOpen }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -112,6 +113,7 @@ export function ClientDirectory({ api, notify, onDirtyChange, member, team, init
             </label>)}
           </div></fieldset>
         </form>}
+        {draft?.id && !cardLoading && onOpen && <ClientSales key={`sales:${draft.id}`} clientId={draft.id} api={api} onOpen={onOpen} />}
         {draft?.id && !cardLoading && <TaskPanel key={draft.id} kind="clients" contextId={draft.id} api={api} member={member} team={team} onDirtyChange={setTaskDirty} />}
       </section>
     </div>

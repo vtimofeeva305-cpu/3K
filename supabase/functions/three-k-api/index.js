@@ -2,6 +2,9 @@ import { AccessError, accessRoute, createAccessRepository } from "./access.js";
 import { clientRoute, createClientRepository } from "./clients.js";
 import { salesRoute, createSalesRepository } from "./sales.js";
 import { taskRoute, createTaskRepository } from "./tasks.js";
+import { paymentRoute, createPaymentRepository } from "./payments.js";
+import { notificationRoute, createNotificationRepository } from "./notifications.js";
+import { inventoryRoute, createInventoryRepository } from "./inventory.js";
 
 const FUNCTION_SLUG = "three-k-api";
 
@@ -254,7 +257,7 @@ export async function authenticateSupabaseUser(request) {
   return user?.id ? user : null;
 }
 
-export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql), sales = createSalesRepository(getSql), tasks = createTaskRepository(getSql)) {
+export function createHandler(repository = databaseRepository, authenticate = authenticateSupabaseUser, access = createAccessRepository(getSql), clients = createClientRepository(getSql), sales = createSalesRepository(getSql), tasks = createTaskRepository(getSql), payments = createPaymentRepository(getSql), notifications = createNotificationRepository(getSql), inventory = createInventoryRepository(getSql)) {
   return async function handler(request) {
     const url = new URL(request.url);
     const pathname = normalizePath(url.pathname);
@@ -282,6 +285,12 @@ export function createHandler(repository = databaseRepository, authenticate = au
       const result = await accessRoute(access, user, member, request.method, pathname, accessPayload);
       if (result !== undefined) return json({ data: result });
 
+      const inventoryResult = await inventoryRoute(inventory, member, request.method, url, pathname, accessPayload);
+      if (inventoryResult !== undefined) return json({ data: inventoryResult });
+      const notificationResult = await notificationRoute(notifications, member, request.method, url, pathname, accessPayload);
+      if (notificationResult !== undefined) return json({ data: notificationResult });
+      const paymentResult = await paymentRoute(payments, member, request.method, url, pathname, accessPayload);
+      if (paymentResult !== undefined) return json({ data: paymentResult });
       const taskResult = await taskRoute(tasks, member, request.method, url, pathname, accessPayload);
       if (taskResult !== undefined) return json({ data: taskResult });
       const clientResult = await clientRoute(clients, member, request.method, url, pathname, accessPayload);

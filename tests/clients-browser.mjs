@@ -26,6 +26,8 @@ try {
     if (path === "/me") data = { member };
     else if (path === "/team") data = [member];
     else if (path === "/assignment-rules") data = {};
+    else if (path === "/notifications/count") data = {unread:0};
+    else if (path === "/deals" || path === "/leads") data = {items:[],hasMore:false};
     else if (path === "/sales/summary") data = { leads: 0, deals: 0, clients: client ? 1 : 0 };
     else if (path === "/tasks" && write) {
       tasks.push({ id, ...payload, contextId: payload.contextId, label: client.name, version: 1, assignee: member.name, assigneeId: member.id });

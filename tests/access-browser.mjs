@@ -19,6 +19,7 @@ try {
       if (path === "/me") data = { member: people[0] };
       else if (path === "/team") data = people;
       else if (path === "/assignment-rules") data = {};
+      else if (path === "/notifications/count") data = {unread:0};
       else if (path === "/invitations") data = route.request().method() === "POST" ? { token: "a".repeat(64) } : [];
       else if (path.endsWith("/workday")) { people[0].working = true; data = people[0]; }
       else return route.fulfill({ status: 404, json: { message: "Unknown test route" } });

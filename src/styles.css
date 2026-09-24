@@ -382,6 +382,19 @@ button {
 .notification-wrap {
   position: relative;
 }
+.notification-bell { position: relative; }
+.notification-count { position: absolute; top: -6px; right: -7px; min-width: 19px; height: 19px; padding: 0 4px; border-radius: 10px; color: white; background: #b73239; font-size: 10px; line-height: 19px; text-align: center; }
+.notifications-panel { position: absolute; top: 48px; right: 0; width: 390px; max-height: min(680px,80dvh); overflow-y: auto; z-index: 60; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+.notifications-panel > header { display: flex; align-items: center; gap: 8px; }
+.notifications-panel > header h2 { flex: 1; margin: 0; font-size: 18px; }
+.notifications-panel .tabs { margin: 12px 0; }
+.notification-item { display: flex; align-items: flex-start; gap: 8px; padding: 12px 0 12px 8px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
+.notification-item.unread { border-left-color: #b73239; background: #f4f5f5; }
+.notification-link { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.notification-link small { color: var(--muted); }
+.notifications-panel footer { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.topbar-actions .notifications-panel .ghost-button { display: inline-flex; white-space: normal; }
+@media(max-width:760px) { .notifications-panel { position: fixed; inset: 100px 12px 90px; width: auto; max-height: none; } }
 
 .notice-popover {
   position: absolute;
@@ -3530,6 +3543,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .screen-clients .action-row > div { flex: 1 1 160px; }
 .screen-clients .action-row > button { flex: 0 0 auto; }
 .sales-layout { display: grid; grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.5fr); gap: 24px; margin-top: 20px; }
+.sales-layout.board-mode { display: block; min-width: 0; }
+.board-mode .sales-detail { margin-top: 24px; border-left: 0; padding-left: 0; }
+.deal-board-section { min-width: 0; max-width: 100%; }
+.deal-board { display: flex; gap: 12px; overflow-x: auto; padding: 0 0 16px; align-items: flex-start; }
+.deal-board-column { flex: 0 0 260px; min-width: 0; background: #f2f4f5; padding: 12px; }
+.deal-board-column > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding-bottom: 12px; }
+.deal-board-column h2 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.deal-board-column > header strong { grid-column: 1 / -1; font-size: 13px; }
+.deal-board-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-bottom: 10px; border: 1px solid #dce1e5; border-radius: 6px; background: white; overflow-wrap: anywhere; }
+.deal-board-card[draggable="true"] { cursor: grab; }
+.deal-board-card > small { color: #667078; }
+.deal-board-card select { width: 100%; min-width: 0; padding: 8px; border: 1px solid #dce1e5; background: white; border-radius: 4px; font: inherit; font-size: 13px; }
+.deal-card-open { display: flex; flex-direction: column; gap: 7px; border: 0; background: none; text-align: left; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.deal-card-open small { color: #667078; }
+.linked-sale { display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; padding: 14px 0; background: none; border: 0; border-bottom: 1px solid #dce1e5; color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.linked-sale small { color: #667078; }
+.sales-screen > .tabs { margin-top: 14px; }
+.payment-totals { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 16px; padding: 16px 0; border-block: 1px solid #dce1e5; }
+.payment-totals dt { color: #667078; font-size: 13px; }
+.payment-totals dd { margin: 6px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.payment-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 0; border-bottom: 1px solid #dce1e5; }
+.payment-row > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.payment-row p { margin: 0; white-space: pre-wrap; }
+.payment-row small { color: #667078; }
+.payment-panel form { margin: 20px 0; }
+.inventory-filters { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.inventory-filters input { flex: 1; min-width: 180px; }
+.inventory-filters input,.inventory-filters select { padding: 10px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.inventory-actions { margin-top: 20px; flex-wrap: wrap; }
+.inventory-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+.inventory-head h2 { min-width: 0; font-size: 20px; overflow-wrap: anywhere; }
 .sales-register, .sales-detail { min-width: 0; }
 .sales-detail { border-left: 1px solid #deded8; padding-left: 24px; }
 .sales-row { display: grid; width: 100%; text-align: left; padding: 16px; gap: 6px; background: white; border: 0; border-bottom: 1px solid #deded8; color: inherit; cursor: pointer; overflow-wrap: anywhere; }

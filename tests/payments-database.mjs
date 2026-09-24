@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import {readFile,readdir} from "node:fs/promises";
+import {createPaymentRepository,validatePayment} from "../supabase/functions/three-k-api/payments.js";
+const {PGlite}=await import(process.env.PGLITE_MODULE || "@electric-sql/pglite");
+const db=new PGlite();
+function tagged(client){
+  const sql=(strings,...values)=>client.query(strings.reduce((out,part,i)=>out+(i?`$${i}`:"")+part,""),values).then(result=>result.rows);
+  sql.begin=callback=>db.transaction(tx=>callback(tagged(tx)));return sql;
+}
+const owner={id:"00000000-0000-4000-8000-000000000001",role:"manager"};
+const other={id:"00000000-0000-4000-8000-000000000002",role:"manager"};
+const boss={...other,role:"rop"};
+const repo=createPaymentRepository(async()=>tagged(db));
+const input=patch=>({kind:"receipt",amount:"0.10",method:"bank",paidOn:"2026-01-01",note:"",version:1,requestId:crypto.randomUUID(),...patch});
+const write=(payload,member=owner,id="D-1")=>repo.append(id,validatePayment(payload),payload.requestId,payload.version,member);
+const rejected=(promise,status)=>assert.rejects(promise,error=>error.status===status);
+try{
+  await db.exec("create role anon; create role authenticated; create role service_role; create schema auth; create table auth.users(id uuid primary key);");
+  const migrations=new URL("../supabase/migrations/",import.meta.url);
+  for(const name of (await readdir(migrations)).filter(name=>name.endsWith(".sql")).sort())await db.exec(await readFile(new URL(name,migrations),"utf8"));
+  if(!(await readdir(migrations)).some(name=>name.endsWith("_payment_ledger.sql")))await db.exec(await readFile(new URL("../supabase/sql/payment_ledger.sql",import.meta.url),"utf8"));
+  await db.query("insert into auth.users values ($1),($2)",[owner.id,other.id]);
+  await db.query("insert into three_k.members(user_id,telegram_subject,display_name,role) values ($1,'one','Owner','manager'),($2,'two','Leader','rop')",[owner.id,other.id]);
+  await db.query("insert into three_k.deals(id,client,company,product,amount,assignee_id,virtual) values ('D-1','A','A','Модель уточняется',0.30,$1,true),('D-2','B','B','B',100,$1,false)",[owner.id]);
+  const first=input();
+  await rejected(write(first,other),403);
+  await rejected(write(input({paidOn:"2999-01-01"})),422);
+  const receipt=await write(first);
+  assert.deepEqual(await write(first),receipt);
+  await rejected(write({...first,amount:"0.20"}),409);
+  await rejected(write(first,owner,"D-2"),409);
+  await rejected(write(input()),409);
+  await write(input({amount:"0.20",version:2}));
+  let state=await repo.list("D-1");
+  assert.equal(state.paid,"0.30");assert.equal(state.balance,"0.00");assert.equal(state.version,3);
+  await rejected(write(input({kind:"refund",amount:"0.31",note:"Too much",version:3})),422);
+  const refund=await write(input({kind:"refund",amount:"0.20",note:"Partial return",version:3}),boss);
+  const reversal=await write(input({kind:"reversal",reversesId:refund.id,note:"Wrong refund",version:4}));
+  state=await repo.list("D-1");assert.equal(state.paid,"0.30");assert.equal(state.items.find(row=>row.id===refund.id).reversed,true);
+  await rejected(write(input({kind:"reversal",reversesId:refund.id,note:"Again",version:5})),409);
+  await rejected(write(input({kind:"reversal",reversesId:reversal.id,note:"Reverse reversal",version:5})),422);
+  await rejected(write(input({kind:"reversal",reversesId:receipt.id,note:"Wrong deal",version:1}),owner,"D-2"),422);
+  await write(input({amount:"10.00",version:5}));
+  state=await repo.list("D-1");assert.equal(state.overpaid,"10.00");assert.equal(state.balance,"0");
+  await assert.rejects(write(input({version:6}),{id:crypto.randomUUID(),role:"rop"}));
+  assert.equal((await repo.list("D-1")).version,6);
+  await assert.rejects(db.query("update three_k.payments set note='tamper' where id=$1",[receipt.id]));
+  await assert.rejects(db.query("delete from three_k.payments where id=$1",[receipt.id]));
+  await assert.rejects(db.exec("truncate three_k.payments cascade"));
+  const grants=(await db.query("select has_table_privilege('anon','three_k.payments','SELECT') as anon,has_table_privilege('authenticated','three_k.payments','INSERT') as authenticated,has_table_privilege('service_role','three_k.payments','UPDATE') as mutable")).rows[0];
+  assert.deepEqual(grants,{anon:false,authenticated:false,mutable:false});
+  for(let i=0;i<31;i++)await write(input({version:6+i}));
+  state=await repo.list("D-1");assert.equal(state.items.length,30);assert.equal(state.hasMore,true);
+  assert.equal((await repo.list("D-1",30)).items.length,6);
+  console.log("Payments PostgreSQL passed: decimal totals, prepayment, refunds, reversals, overpayment, permissions, retries, version conflicts, rollback, pagination, immutable rows and private grants. No live writes.");
+}finally{await db.close();}

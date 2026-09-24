@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowClockwise, FloppyDisk, Plus, X, ArrowRight } from "@phosphor-icons/react";
 import { isLeader } from "./access.jsx";
 import { TaskPanel } from "./tasks.jsx";
+import { SalesBoard, DEAL_STAGES } from "./sales-board.jsx";
+import { Payments } from "./payments.jsx";
+import { DealInventory } from "./inventory.jsx";
 
-const stages = ["Квалификация", "Подбор", "Ожидается оплата", "Связаться позже", "Успешно", "Отказ"];
+const stages = DEAL_STAGES;
 const rub = value => new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 2 }).format(value || 0);
 const fresh = kind => kind === "leads"
   ? { client: "", phone: "", city: "", listing: "", message: "", price: 0, requestId: crypto.randomUUID() }
@@ -13,7 +16,9 @@ function editable(record, kind) {
   return Object.fromEntries([...keys, "version"].map(key => [key, record[key] ?? ""]));
 }
 
-export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyChange, notify, intake = false, initialId = null }) {
+export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyChange, notify, intake = false, initialId = null, onOpen }) {
+  const [view, setView] = useState("list");
+  const boardDirty = useRef(false);
   const [page, setPage] = useState(0);
   const [status, setStatus] = useState("");
   const [data, setData] = useState({ items: [], hasMore: false });
@@ -25,6 +30,7 @@ export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyCha
   const dirty = useRef(false);
   useEffect(() => { setPage(0); }, [query, status]);
   useEffect(() => {
+    if (view === "board") return;
     let active = true;
     setLoading(true);
     const timer = setTimeout(() => {
@@ -34,8 +40,9 @@ export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyCha
         .finally(() => { if (active) setLoading(false); });
     }, 150);
     return () => { active = false; clearTimeout(timer); };
-  }, [api, kind, query, status, page, revision]);
+  }, [api, kind, query, status, page, revision, view]);
   const select = id => {
+    if (boardDirty.current) return;
     if (dirty.current && !window.confirm("Отменить несохранённые изменения?")) return;
     setCardKind(kind); setSelected(id);
   };
@@ -46,8 +53,12 @@ export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyCha
     <label className="sales-filter">Статус <select aria-label="Статус списка" value={status} onChange={event => setStatus(event.target.value)}>
       <option value="">Все</option>{(kind === "leads" ? [["Новый","Новые"],["В работе","В работе"],["Сделка создана","Создана сделка"]] : [["open","Открытые"],["closed","Закрытые"]]).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
     </select></label>
-    {error && <p role="alert">{error}</p>}{loading && <p role="status">Загрузка…</p>}
-    <div className="sales-layout"><div className="sales-register">
+    {kind === "deals" && <div className="tabs" aria-label="Вид сделок">{[["list","Список"],["board","Канбан"]].map(([value,label]) => <button key={value} className={view === value ? "active" : ""} aria-pressed={view === value} disabled={boardDirty.current} onClick={() => { if (!boardDirty.current) setView(value); }}>{label}</button>)}</div>}
+    {view === "list" && <>{error && <p role="alert">{error}</p>}{loading && <p role="status">Загрузка…</p>}</>}
+    <div className={`sales-layout ${view === "board" ? "board-mode" : ""}`}>
+    {view === "board" ? <SalesBoard api={api} member={member} query={query} status={status} revision={revision} onOpen={select}
+      canChange={() => !dirty.current} onDirtyChange={value => { boardDirty.current = value; onDirtyChange?.(value || dirty.current); }}
+      onChanged={() => { setSelected(null); setRevision(value => value + 1); notify("Этап сделки сохранён"); }} /> : <div className="sales-register">
       {!loading && !error && !data.items.length && <p className="empty-state">Записей пока нет</p>}
       {data.items.map(record => <button className={`sales-row ${record.id === selected ? "active" : ""}`} key={record.id} disabled={loading} onClick={() => select(record.id)}>
         <span className="sales-row-id">{record.id} · {record.status === "closed" ? "Закрыта" : record.stage || record.status}</span>
@@ -55,9 +66,9 @@ export function SalesWorkspace({ api, member, team, kind, query = "", onDirtyCha
         <span>{rub(kind === "leads" ? record.price : record.amount)}</span><small>{record.source} · {record.manager}</small>
       </button>)}
       <div className="button-row"><button className="ghost-button" disabled={page === 0 || loading} onClick={() => setPage(value => value - 1)}>Назад</button><span>{page + 1}</span><button className="ghost-button" disabled={!data.hasMore || loading} onClick={() => setPage(value => value + 1)}>Далее</button></div>
-    </div><div className="sales-detail">
+    </div>}<div className="sales-detail">
       {selected ? <SalesEditor key={`${cardKind}:${selected}`} api={api} member={member} team={team} kind={cardKind} id={selected} intake={intake}
-        onDirtyChange={value => { dirty.current = value; onDirtyChange?.(value); }}
+        onOpen={onOpen} onDirtyChange={value => { dirty.current = value; onDirtyChange?.(value || boardDirty.current); }}
         onSaved={record => { setSelected(record.id); setRevision(value => value + 1); notify("Сохранено"); }}
         onConverted={record => { setCardKind("deals"); setSelected(record.id); setRevision(value => value + 1); notify(`Создана сделка ${record.id}`); }} /> : <p className="empty-state">Выберите {kind === "leads" ? "лид" : "сделку"}</p>}
     </div></div>
@@ -72,7 +83,7 @@ export function NewSalesDeal({ api, member, team, onClose, notify }) {
   </section></div>;
 }
 
-function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted, onDirtyChange }) {
+function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted, onDirtyChange, onOpen }) {
   const [record, setRecord] = useState(null);
   const [draft, setDraft] = useState(() => id === "new" ? fresh(kind) : null);
   const [original, setOriginal] = useState(null);
@@ -83,10 +94,11 @@ function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted
   const [target, setTarget] = useState("");
   const inFlight = useRef(false);
   const [taskDirty, setTaskDirty] = useState(false);
+  const [paymentDirty, setPaymentDirty] = useState(false);
   const dirty = !!draft && (id === "new" ? Object.entries(draft).some(([key,value]) => !["requestId","stage","virtual","amount","price"].includes(key) && !!value) : JSON.stringify(draft) !== JSON.stringify(original));
   const dirtyCallback = useRef(onDirtyChange);
   dirtyCallback.current = onDirtyChange;
-  useEffect(() => { dirtyCallback.current?.(dirty || busy || taskDirty); return () => dirtyCallback.current?.(false); }, [dirty,busy,taskDirty]);
+  useEffect(() => { dirtyCallback.current?.(dirty || busy || taskDirty || paymentDirty); return () => dirtyCallback.current?.(false); }, [dirty,busy,taskDirty,paymentDirty]);
   useEffect(() => {
     if (!dirty) return;
     const handler = event => { event.preventDefault(); event.returnValue = ""; };
@@ -113,21 +125,22 @@ function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted
     finally { inFlight.current = false; setBusy(false); }
   };
   const canEdit = id === "new" || isLeader(member) || record?.assigneeId === member.id;
-  const refresh = () => { if (!(dirty || taskDirty) || window.confirm("Загрузить сохранённую версию и отменить изменения?")) setRevision(value => value + 1); };
+  const refresh = () => { if (!(dirty || taskDirty || paymentDirty) || window.confirm("Загрузить сохранённую версию и отменить изменения?")) setRevision(value => value + 1); };
   return <>
     <div className="client-card-head"><h2>{id === "new" ? kind === "leads" ? "Новый лид" : "Новая сделка" : id}</h2>{id !== "new" && <button className="icon-button" title="Обновить карточку" aria-label="Обновить карточку" disabled={busy} onClick={refresh}><ArrowClockwise size={18} /></button>}</div>
     {error && <p role="alert">{error}</p>}{loading && <p role="status">Загрузка карточки…</p>}
     {draft && !loading && <>
       {record && <p className="sales-meta">{record.source} · {record.manager}<br />{new Date(record.createdAt).toLocaleString("ru-RU")} · {record.stage || record.status}</p>}
-      {record && record.status !== "closed" && record.status !== "Сделка создана" && <div className="sales-assignment">
+      {record && onOpen && <div className="button-row">{record.clientId && <button className="ghost-button" disabled={busy} onClick={() => onOpen("clients",record.clientId)}>Карточка клиента <ArrowRight size={16}/></button>}{record.leadId && <button className="ghost-button" disabled={busy} onClick={() => onOpen("leads",record.leadId)}>Исходный лид <ArrowRight size={16}/></button>}</div>}
+      {record && !paymentDirty && record.status !== "closed" && record.status !== "Сделка создана" && <div className="sales-assignment">
         {(!record.assigneeId || canEdit) && <button className="secondary-button" disabled={busy || dirty} onClick={() => run(`/${kind}/${id}/take`,{version:record.version})}>Взять в работу</button>}
         {isLeader(member) && <><select aria-label="Ответственный" value={target} disabled={busy} onChange={event => setTarget(event.target.value)}><option value="">Выберите ответственного</option>{team.filter(person => person.working).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select><button className="secondary-button" disabled={!target || busy || dirty} onClick={() => run(`/${kind}/${id}/take`,{version:record.version,memberId:target})}>Назначить</button></>}
       </div>}
       <form onSubmit={event => { event.preventDefault(); run(id === "new" ? intake ? "/intake/landing" : `/${kind}` : `/${kind}/${id}`,draft); }}>
-        <fieldset className="client-fields" disabled={busy || !canEdit || (kind === "leads" && id !== "new")}><div className="form-grid">
+        <fieldset className="client-fields" disabled={busy || paymentDirty || !canEdit || (kind === "leads" && id !== "new")}><div className="form-grid">
           {kind === "deals" ? <>
             <ClientSelect api={api} value={draft.clientId} label={record?.client} disabled={!!record?.clientId} onChange={value => update("clientId",value)} />
-            <Field label="Техника" value={draft.product} onChange={value => update("product",value)} required />
+            <Field label="Техника" value={draft.product} onChange={value => update("product",value)} required={!draft.virtual} />
             <Field label="Сумма сделки" type="number" value={draft.amount} onChange={value => update("amount",value)} required />
             <Field label="VIN" value={draft.vin} onChange={value => update("vin",value)} />
             <Field label="Плановое закрытие" type="date" value={draft.closeDate} onChange={value => update("closeDate",value)} />
@@ -139,6 +152,8 @@ function SalesEditor({ api, member, team, kind, id, intake, onSaved, onConverted
         {(id === "new" || kind === "deals") && canEdit && <div className="button-row"><button className="primary-button" disabled={busy || (id !== "new" && !dirty)}><FloppyDisk size={18} />{busy ? "Сохранение…" : "Сохранить"}</button>{id !== "new" && <button className="ghost-button" type="button" disabled={busy || !dirty} onClick={() => { setDraft(original); setError(""); }}>Отменить</button>}</div>}
       </form>
       {kind === "leads" && record && canEdit && <button className="primary-button" disabled={busy || taskDirty} onClick={() => run(`/leads/${id}/convert`,{version:record.version},true)}><ArrowRight size={18} />{record.dealId ? `Открыть ${record.dealId}` : "Создать сделку"}</button>}
+      {record && kind === "deals" && onOpen && <DealInventory api={api} dealId={record.id} onOpen={onOpen}/>}
+      {record && kind === "deals" && <Payments api={api} dealId={record.id} canEdit={canEdit} disabled={dirty || busy || taskDirty} onDirtyChange={setPaymentDirty} onSaved={() => { setRevision(value => value + 1); onSaved(record); }} />}
       {record?.events?.length > 0 && <section className="form-section"><h3>История</h3>{record.events.map(event => <div className="sales-event" key={event.id}><strong>{event.action}</strong><small>{event.actor} · {new Date(event.createdAt).toLocaleString("ru-RU")}</small></div>)}</section>}
       {record && <TaskPanel api={api} member={member} team={team} kind={kind} contextId={record.id} canCreate={canEdit} onDirtyChange={setTaskDirty} />}
     </>}

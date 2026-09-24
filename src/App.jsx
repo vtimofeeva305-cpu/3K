@@ -4,9 +4,10 @@ import { AccessScreen, ROLE_LABELS, TeamScreen, isLeader, useAccess } from "./ac
 import { ClientDirectory } from "./clients.jsx";
 import { SalesWorkspace, NewSalesDeal } from "./sales.jsx";
 import { TaskPanel } from "./tasks.jsx";
+import { Notifications } from "./notifications.jsx";
+import { Inventory } from "./inventory.jsx";
 import {
   ArrowRight,
-  Bell,
   CalendarCheck,
   ChartLineUp,
   ChatCircleText,
@@ -168,11 +169,12 @@ export function App() {
   };
 
   const openTaskContext = (kind, id) => {
-    if (!["clients", "leads", "deals"].includes(kind)) return;
-    if (clientDirty && !window.confirm("Отменить несохранённые изменения?")) return;
+    if (!["clients", "leads", "deals", "inventory"].includes(kind)) return false;
+    if (clientDirty && !window.confirm("Отменить несохранённые изменения?")) return false;
     setRecordTarget({ kind, id });
-    setScreen(kind);
+    setScreen(kind === "inventory" ? "showroom" : kind);
     setNoticeOpen(false);
+    return true;
   };
 
   const handleTelegramSignIn = () => {
@@ -253,6 +255,8 @@ export function App() {
           setQuery={setQuery}
           noticeOpen={noticeOpen}
           setNoticeOpen={setNoticeOpen}
+          api={access.api}
+          onOpen={openTaskContext}
           go={go}
           openNewDeal={() => { if (!clientDirty || window.confirm("Отменить несохранённые изменения карточки?")) setNewDealOpen(true); }}
           user={user}
@@ -260,11 +264,11 @@ export function App() {
         />
 
         {screen === "today" && <TodayScreen api={access.api} go={go} leader={isLeader(access.member)} member={access.member} team={access.team} onDirtyChange={setClientDirty} onOpen={openTaskContext} />}
-        {screen === "showroom" && <ShowroomScreen notify={notify} waitAdded={waitAdded} setWaitAdded={setWaitAdded} />}
+        {screen === "showroom" && <Inventory key={recordTarget?.id || "inventory"} initialId={recordTarget?.id} api={access.api} member={access.member} onDirtyChange={setClientDirty} onOpen={openTaskContext} />}
         {["leads", "deals", "pipeline", "deal", "landing"].includes(screen) && <SalesWorkspace key={`${screen}:${newDealOpen}:${recordTarget?.id || ""}`} initialId={recordTarget?.id} api={access.api} member={access.member} team={access.team}
-          kind={["leads", "landing"].includes(screen) ? "leads" : "deals"} intake={screen === "landing"} query={query} notify={notify} onDirtyChange={setClientDirty} />}
+          kind={["leads", "landing"].includes(screen) ? "leads" : "deals"} intake={screen === "landing"} query={query} notify={notify} onDirtyChange={setClientDirty} onOpen={openTaskContext} />}
         {screen === "clients" && (
-          <ClientDirectory key={recordTarget?.id || "directory"} initialId={recordTarget?.id} api={access.api} notify={notify} onDirtyChange={setClientDirty} member={access.member} team={access.team} />
+          <ClientDirectory key={recordTarget?.id || "directory"} initialId={recordTarget?.id} api={access.api} notify={notify} onDirtyChange={setClientDirty} member={access.member} team={access.team} onOpen={openTaskContext} />
         )}
         {screen === "managers" && (
           <TeamScreen access={access} />
@@ -324,7 +328,7 @@ function getUserDisplayName(user) {
   return metadata.full_name || metadata.name || metadata.user_name || user?.email || "Пользователь";
 }
 
-function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal, user, onSignOut }) {
+function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal, user, onSignOut, api, onOpen }) {
   return (
     <header className="topbar">
       <div className="mobile-brand"><img src={logo} alt="3К" width="58" height="36" /><span>CRM продаж</span><button className="mobile-landing" type="button" onClick={() => go("landing")}><Storefront size={16} />Лендинг</button></div>
@@ -346,24 +350,7 @@ function Topbar({ query, setQuery, noticeOpen, setNoticeOpen, go, openNewDeal, u
           <Plus size={18} weight="bold" />
           Новая сделка
         </button>
-        <div className="notification-wrap">
-          <button
-            className={cx("icon-button", noticeOpen && "active")}
-            aria-label="Уведомления"
-            type="button"
-            onClick={() => setNoticeOpen(!noticeOpen)}
-          >
-            <Bell size={20} weight="regular" />
-            
-          </button>
-          {noticeOpen ? (
-            <div className="notice-popover">
-              <div className="notice-title">Внутренние уведомления</div>
-              <p>Нет уведомлений</p>
-
-            </div>
-          ) : null}
-        </div>
+        <Notifications api={api} open={noticeOpen} setOpen={setNoticeOpen} onOpen={onOpen}/>
         <button className="profile-chip" type="button" onClick={onSignOut} title="Выйти">
           <span><UsersThree size={18} /></span>
           {getUserDisplayName(user)}
@@ -391,7 +378,7 @@ function TodayScreen({ go, api, leader, member, team, onDirtyChange, onOpen }) {
   return <section className="screen screen-today">
     <div className="page-heading">
       <div><div className="eyebrow">Рабочий стол · {new Date().toLocaleDateString("ru-RU")}</div><h1>Сегодня</h1><p className="page-description">Всё для работы с клиентами и продажами.</p></div>
-      {leader && <button className="secondary-button" onClick={() => go("reports")}><ChartLineUp size={18} />Дашборд РОПа<ArrowRight size={16} /></button>}
+      <div className="button-row"><button className="secondary-button" onClick={() => go("showroom")}><Storefront size={18}/>Шоурум и склад</button>{leader && <button className="secondary-button" onClick={() => go("reports")}><ChartLineUp size={18} />Дашборд РОПа<ArrowRight size={16} /></button>}</div>
     </div>
     {error && <p role="alert">{error} <button className="ghost-button" onClick={() => setRevision(value => value + 1)}>Повторить</button></p>}
     <div className="stats-grid">

@@ -21,9 +21,17 @@ try {
     if (path==="/me") data={member};
     else if (path==="/team") data=[member];
     else if (path==="/assignment-rules") data={};
+    else if (path==="/notifications/count") data={unread:0};
+    else if (path==="/inventory") data={items:[],hasMore:false};
     else if (path==="/tasks") data={items:[],hasMore:false};
+    else if (/^\/deals\/[^/]+\/payments$/.test(path)) data={items:[],hasMore:false,total:"0",paid:"0",balance:"0",overpaid:"0",version:1,today:"2026-09-24"};
     else if (path==="/sales/summary") data={leads:records.leads.length,deals:records.deals.length,clients:1};
     else if (path==="/clients") data={items:[{id:"C-1",displayName:"Покупатель",phone:"+79000000001"}],hasMore:false};
+    else if (path==="/clients/C-1") data={id:"C-1",name:"Покупатель",displayName:"Покупатель",form:"Физлицо",phone:"+79000000001",version:1};
+    else if (path==="/deals/board") data={columns:["Квалификация","Подбор","Ожидается оплата","Связаться позже","Успешно","Отказ"].map(stage=>{
+      const items=records.deals.filter(item=>item.stage===stage && (!url.searchParams.get("status") || item.status===url.searchParams.get("status")));
+      return {stage,items,total:items.length,amount:items.reduce((sum,item)=>sum+Number(item.amount),0),hasMore:false};
+    })};
     else {
       const [,kind,id,action] = path.split("/");
       if (!records[kind]) return route.fulfill({status:404,json:{message:"Unknown route"}});
@@ -73,11 +81,52 @@ try {
   await page.getByRole("alert").filter({hasText:"уже изменена"}).waitFor();
   assert.equal(await page.getByLabel("Техника",{exact:true}).inputValue(),"Несохранённый черновик");
   await page.getByRole("button",{name:"Отменить",exact:true}).click();
+  conflict=false;
+  await page.getByLabel("Статус списка",{exact:true}).selectOption("");
+  await page.getByRole("button",{name:"Канбан",exact:true}).click();
+  await page.getByLabel("Этап D-1",{exact:true}).selectOption("Подбор");
+  await page.getByRole("region",{name:"Подбор",exact:true}).getByLabel("Этап D-1",{exact:true}).waitFor();
+  assert.equal(records.deals[0].stage,"Подбор");
+  await page.getByLabel("Этап D-1",{exact:true}).selectOption("Отказ");
+  await page.getByLabel("Причина отказа в канбане").fill("Не согласован бюджет");
+  await page.getByRole("button",{name:"Закрыть с отказом",exact:true}).click();
+  await page.getByRole("region",{name:"Отказ",exact:true}).getByLabel("Этап D-1",{exact:true}).waitFor();
+  assert.equal(records.deals[0].lossReason,"Не согласован бюджет");
+  conflict=true;
+  await page.getByLabel("Этап D-1",{exact:true}).selectOption("Успешно");
+  await page.getByRole("alert").filter({hasText:"уже изменена"}).waitFor();
+  assert.equal(records.deals[0].stage,"Отказ");
+  conflict=false;
+  await page.getByRole("button",{name:"Обновить канбан",exact:true}).click();
+  await page.locator('.deal-card-open').first().click();
+  await page.getByRole("button",{name:"Карточка клиента",exact:true}).click();
+  await page.getByRole("region",{name:"Связанные продажи"}).getByRole("button",{name:/D-1/}).click();
+  await page.getByRole("heading",{name:"D-1",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Исходный лид",exact:true}).click();
+  await page.getByRole("heading",{name:"L-1",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Карточка клиента",exact:true}).click();
+  await page.getByRole("button",{name:"Лиды клиента",exact:true}).click();
+  await page.getByRole("region",{name:"Связанные продажи"}).getByRole("button",{name:/L-1/}).click();
+  await page.getByRole("heading",{name:"L-1",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Сделки",exact:true}).click();
+  await page.getByRole("button",{name:"Канбан",exact:true}).click();
+  await page.getByLabel("Этап D-1",{exact:true}).waitFor();
+  await page.locator('.deal-board-card').first().dragTo(page.getByRole("region",{name:"Успешно",exact:true}));
+  await page.getByRole("region",{name:"Успешно",exact:true}).getByLabel("Этап D-1",{exact:true}).waitFor();
+  member.role="manager";
+  records.deals.push({...records.deals[0],id:"D-2",assigneeId:"another-member",stage:"Подбор"});
+  await page.reload();
+  await page.getByRole("button",{name:"Сделки",exact:true}).click();
+  await page.getByRole("button",{name:"Канбан",exact:true}).click();
+  await page.getByLabel("Этап D-2",{exact:true}).waitFor();
+  assert.equal(await page.getByLabel("Этап D-2",{exact:true}).isDisabled(),true);
+  assert.equal(await page.getByLabel("Этап D-1",{exact:true}).isDisabled(),false);
   for (const width of [1440,390]) {
     await page.setViewportSize({width,height:900});
+    await page.getByLabel("Этап D-1",{exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:`/tmp/three-k-sales-${width}.png`,fullPage:true});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Overflow at ${width}`);
   }
   assert.deepEqual(errors,[]);
-  console.log("Sales browser passed: lead creation, conversion, edit, refusal, reload, filters, conflict retention, cancel and responsive layout (mock API).");
+  console.log("Sales browser passed: creation, conversion, edit, board select/drag/refusal, conflicts, manager ownership, reload, client/lead/deal links and desktop/mobile layout (mock API).");
 } finally { await browser.close(); }
